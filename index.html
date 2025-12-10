@@ -489,6 +489,205 @@
             padding: 0 2px;
         }
 
+        /* Beads styles */
+        .beads-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: var(--bg-tertiary);
+            border-radius: 8px;
+            border-left: 4px solid var(--accent-orange);
+        }
+
+        .beads-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            cursor: pointer;
+        }
+
+        .beads-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .beads-icon {
+            font-size: 18px;
+        }
+
+        .beads-stats-mini {
+            display: flex;
+            gap: 12px;
+        }
+
+        .beads-stat-mini {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .beads-stat-mini strong {
+            color: var(--accent-orange);
+        }
+
+        .beads-content {
+            display: none;
+        }
+
+        .beads-content.expanded {
+            display: block;
+        }
+
+        .beads-filters {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .beads-filter-btn {
+            padding: 4px 12px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .beads-filter-btn:hover {
+            border-color: var(--accent-orange);
+        }
+
+        .beads-filter-btn.active {
+            background: var(--accent-orange);
+            color: var(--bg-primary);
+            border-color: var(--accent-orange);
+        }
+
+        .beads-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .bead-item {
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            border-left: 3px solid var(--text-muted);
+        }
+
+        .bead-item.priority-1 {
+            border-left-color: #f85149;
+        }
+
+        .bead-item.priority-2 {
+            border-left-color: var(--accent-orange);
+        }
+
+        .bead-item.priority-3 {
+            border-left-color: var(--accent-blue);
+        }
+
+        .bead-item.status-closed {
+            opacity: 0.6;
+        }
+
+        .bead-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .bead-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .bead-id {
+            font-size: 11px;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+            color: var(--text-muted);
+        }
+
+        .bead-meta {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .bead-type {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .bead-type.bug {
+            background: rgba(248, 81, 73, 0.15);
+            color: #f85149;
+        }
+
+        .bead-type.feature {
+            background: rgba(163, 113, 247, 0.15);
+            color: var(--accent-purple);
+        }
+
+        .bead-type.task {
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent-blue);
+        }
+
+        .bead-status {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .bead-status.open {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--accent-green);
+        }
+
+        .bead-status.closed {
+            background: rgba(139, 148, 158, 0.15);
+            color: var(--text-muted);
+        }
+
+        .bead-description {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            line-height: 1.4;
+        }
+
+        .bead-close-reason {
+            font-size: 12px;
+            color: var(--accent-green);
+            margin-top: 8px;
+            padding: 8px;
+            background: rgba(63, 185, 80, 0.1);
+            border-radius: 4px;
+        }
+
+        .beads-toggle {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: transform 0.2s;
+        }
+
+        .beads-header.expanded .beads-toggle {
+            transform: rotate(180deg);
+        }
+
         @media (max-width: 900px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -613,6 +812,17 @@
                 });
             });
 
+            // Count beads issues
+            let totalBeadsOpen = 0;
+            let totalBeadsClosed = 0;
+            projects.forEach(project => {
+                if (project.beads && project.beads.stats) {
+                    totalBeadsOpen += project.beads.stats.open || 0;
+                    totalBeadsClosed += project.beads.stats.closed || 0;
+                }
+            });
+            const totalBeads = totalBeadsOpen + totalBeadsClosed;
+
             document.getElementById('stats').innerHTML = `
                 <div class="stat-card">
                     <div class="stat-value">${totalProjects}</div>
@@ -630,6 +840,12 @@
                     <div class="stat-value">${totalCommits}</div>
                     <div class="stat-label">Commits</div>
                 </div>
+                ${totalBeads > 0 ? `
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-orange)">${totalBeadsOpen}</div>
+                    <div class="stat-label">Open Issues</div>
+                </div>
+                ` : ''}
             `;
         }
 
@@ -722,6 +938,7 @@
                     ${githubLink}
                 </div>
                 <div class="timeline">
+                    ${renderBeadsSection(project.beads)}
                     ${filteredDays.map(([date, day]) => renderDay(date, day)).join('')}
                 </div>
             `;
@@ -844,6 +1061,122 @@
                         <span class="tool-badge">${escapeHtml(tool)}</span>
                     `).join('')}
                     ${tools.length > 10 ? `<span class="tool-badge">+${tools.length - 10} more</span>` : ''}
+                </div>
+            `;
+        }
+
+        // Beads state
+        let beadsFilter = 'all';
+        let beadsExpanded = false;
+
+        function renderBeadsSection(beads) {
+            if (!beads || !beads.issues || beads.issues.length === 0) return '';
+
+            const stats = beads.stats || {};
+            const openCount = stats.open || 0;
+            const closedCount = stats.closed || 0;
+
+            return `
+                <div class="beads-section">
+                    <div class="beads-header ${beadsExpanded ? 'expanded' : ''}" onclick="toggleBeads()">
+                        <div class="beads-title">
+                            <span class="beads-icon">🔮</span>
+                            Beads Issues
+                        </div>
+                        <div class="beads-stats-mini">
+                            <span class="beads-stat-mini"><strong>${openCount}</strong> open</span>
+                            <span class="beads-stat-mini"><strong>${closedCount}</strong> closed</span>
+                            <span class="beads-toggle">▼</span>
+                        </div>
+                    </div>
+                    <div class="beads-content ${beadsExpanded ? 'expanded' : ''}" id="beadsContent">
+                        <div class="beads-filters">
+                            <button class="beads-filter-btn ${beadsFilter === 'all' ? 'active' : ''}" onclick="filterBeads('all')">All (${beads.issues.length})</button>
+                            <button class="beads-filter-btn ${beadsFilter === 'open' ? 'active' : ''}" onclick="filterBeads('open')">Open (${openCount})</button>
+                            <button class="beads-filter-btn ${beadsFilter === 'closed' ? 'active' : ''}" onclick="filterBeads('closed')">Closed (${closedCount})</button>
+                            ${stats.by_type?.bug ? `<button class="beads-filter-btn ${beadsFilter === 'bug' ? 'active' : ''}" onclick="filterBeads('bug')">Bugs (${stats.by_type.bug})</button>` : ''}
+                            ${stats.by_type?.feature ? `<button class="beads-filter-btn ${beadsFilter === 'feature' ? 'active' : ''}" onclick="filterBeads('feature')">Features (${stats.by_type.feature})</button>` : ''}
+                            ${stats.by_type?.task ? `<button class="beads-filter-btn ${beadsFilter === 'task' ? 'active' : ''}" onclick="filterBeads('task')">Tasks (${stats.by_type.task})</button>` : ''}
+                        </div>
+                        <div class="beads-list" id="beadsList">
+                            ${renderBeadsList(beads.issues)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleBeads() {
+            beadsExpanded = !beadsExpanded;
+            const header = document.querySelector('.beads-header');
+            const content = document.getElementById('beadsContent');
+            if (header) header.classList.toggle('expanded', beadsExpanded);
+            if (content) content.classList.toggle('expanded', beadsExpanded);
+        }
+
+        function filterBeads(filter) {
+            beadsFilter = filter;
+            if (selectedProject) {
+                const project = historyData.projects[selectedProject];
+                if (project && project.beads) {
+                    document.getElementById('beadsList').innerHTML = renderBeadsList(project.beads.issues);
+                    // Update active button
+                    document.querySelectorAll('.beads-filter-btn').forEach(btn => {
+                        btn.classList.remove('active');
+                        if (btn.textContent.toLowerCase().startsWith(filter)) {
+                            btn.classList.add('active');
+                        }
+                    });
+                }
+            }
+        }
+
+        function renderBeadsList(issues) {
+            let filtered = issues;
+
+            if (beadsFilter === 'open') {
+                filtered = issues.filter(i => i.status === 'open');
+            } else if (beadsFilter === 'closed') {
+                filtered = issues.filter(i => i.status === 'closed');
+            } else if (beadsFilter === 'bug') {
+                filtered = issues.filter(i => i.issue_type === 'bug');
+            } else if (beadsFilter === 'feature') {
+                filtered = issues.filter(i => i.issue_type === 'feature');
+            } else if (beadsFilter === 'task') {
+                filtered = issues.filter(i => i.issue_type === 'task');
+            }
+
+            // Sort by priority (lower = higher priority), then by updated_at
+            filtered.sort((a, b) => {
+                if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
+                if (a.priority !== b.priority) return (a.priority || 99) - (b.priority || 99);
+                return (b.updated_at || '').localeCompare(a.updated_at || '');
+            });
+
+            if (filtered.length === 0) {
+                return '<div style="color: var(--text-muted); text-align: center; padding: 20px;">No issues match this filter</div>';
+            }
+
+            return filtered.map(issue => renderBeadItem(issue)).join('');
+        }
+
+        function renderBeadItem(issue) {
+            const priorityClass = `priority-${issue.priority || 0}`;
+            const statusClass = `status-${issue.status || 'open'}`;
+
+            return `
+                <div class="bead-item ${priorityClass} ${statusClass}">
+                    <div class="bead-header">
+                        <span class="bead-title">${escapeHtml(issue.title)}</span>
+                        <span class="bead-id">${escapeHtml(issue.id)}</span>
+                    </div>
+                    <div class="bead-meta">
+                        <span class="bead-type ${issue.issue_type || ''}">${escapeHtml(issue.issue_type || 'unknown')}</span>
+                        <span class="bead-status ${issue.status || ''}">${escapeHtml(issue.status || 'open')}</span>
+                        ${issue.priority ? `<span class="badge">P${issue.priority}</span>` : ''}
+                    </div>
+                    ${issue.description ? `<div class="bead-description">${escapeHtml(issue.description.substring(0, 200))}${issue.description.length > 200 ? '...' : ''}</div>` : ''}
+                    ${issue.close_reason ? `<div class="bead-close-reason">✓ ${escapeHtml(issue.close_reason.substring(0, 200))}${issue.close_reason.length > 200 ? '...' : ''}</div>` : ''}
                 </div>
             `;
         }

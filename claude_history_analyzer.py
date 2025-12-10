@@ -198,6 +198,63 @@ def get_github_remote(project_path: str) -> Optional[str]:
     return None
 
 
+def load_beads_issues(project_path: str) -> list[dict]:
+    """Load beads issues from a project's .beads/issues.jsonl file."""
+    beads_file = Path(project_path) / ".beads" / "issues.jsonl"
+    issues = []
+
+    if not beads_file.exists():
+        return issues
+
+    try:
+        with open(beads_file, 'r') as f:
+            for line in f:
+                try:
+                    issue = json.loads(line.strip())
+                    # Parse timestamps
+                    for ts_field in ['created_at', 'updated_at', 'closed_at']:
+                        if issue.get(ts_field):
+                            parsed = parse_timestamp(issue[ts_field])
+                            if parsed:
+                                issue[ts_field] = parsed.isoformat()
+                    issues.append(issue)
+                except json.JSONDecodeError:
+                    continue
+    except IOError:
+        pass
+
+    return issues
+
+
+def get_beads_stats(issues: list[dict]) -> dict:
+    """Calculate statistics from beads issues."""
+    if not issues:
+        return None
+
+    open_issues = [i for i in issues if i.get('status') == 'open']
+    closed_issues = [i for i in issues if i.get('status') == 'closed']
+
+    # Count by type
+    by_type = {}
+    for issue in issues:
+        issue_type = issue.get('issue_type', 'unknown')
+        by_type[issue_type] = by_type.get(issue_type, 0) + 1
+
+    # Count by priority
+    by_priority = {}
+    for issue in issues:
+        priority = issue.get('priority', 0)
+        by_priority[priority] = by_priority.get(priority, 0) + 1
+
+    return {
+        "total": len(issues),
+        "open": len(open_issues),
+        "closed": len(closed_issues),
+        "by_type": by_type,
+        "by_priority": by_priority
+    }
+
+
 def get_git_tags_for_project(project_path: str) -> dict[str, str]:
     """Get a mapping of commit SHA to tag name for a project."""
     sha_to_tag = {}
@@ -429,7 +486,17 @@ def analyze_history(output_path: Path = DEFAULT_OUTPUT, force_refresh: bool = Fa
                 "name": project_name,
                 "path": project_path,
                 "github_url": get_github_remote(project_path),
-                "days": {}
+                "days": {},
+                "beads": None
+            }
+
+        # Load beads issues for this project
+        beads_issues = load_beads_issues(project_path)
+        if beads_issues:
+            print(f"  Found {len(beads_issues)} beads issues")
+            output_data[project_path]["beads"] = {
+                "issues": beads_issues,
+                "stats": get_beads_stats(beads_issues)
             }
 
         # Get git commits and tags for the project
