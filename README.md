@@ -6,6 +6,7 @@
 ![Vibe](https://img.shields.io/badge/Vibe-Maximum-ff69b4)
 ![Projects](https://img.shields.io/badge/Projects-Too%20Many-orange)
 ![ADHD](https://img.shields.io/badge/ADHD-Friendly-brightgreen)
+![Beads](https://img.shields.io/badge/Beads-Integrated-yellow)
 
 ## The Problem
 
@@ -40,6 +41,7 @@ Finally, you can answer: *"What was I working on in that recipe app last Thursda
 - **Expandable Messages** — Click to see exactly what you asked (and what rabbit holes you went down)
 - **GitHub Commit Links** — Connect your sessions to actual commits (proof you shipped something!)
 - **Tag Support** — Links to releases when available, because you're professional like that
+- **[Beads](https://github.com/steveyegge/beads) Integration** — See all your agent issues in one place, filterable by status and type
 - **Search Everything** — Find that one session where you "fixed the auth thing" across all projects
 - **Date Filtering** — What did I do last week? Last month? Before my mass-deletion spree?
 - **Cron-Ready** — Runs daily in the background. Set it and forget it. (You will forget it. That's the point.)
@@ -168,7 +170,8 @@ The analyzer:
 3. **Extracts** summaries (Claude already summarizes your sessions!)
 4. **Enhances** with AI-generated daily overviews
 5. **Links** git commits within session timeframes
-6. **Renders** everything in a searchable web UI
+6. **Discovers** [Beads](https://github.com/steveyegge/beads) issues in your projects
+7. **Renders** everything in a searchable web UI
 
 ## Configuration
 
@@ -195,6 +198,9 @@ A: Sessions without built-in Claude summaries get a fallback. Use the API key fo
 
 **Q: Can I see what my agents did?**
 A: Yes! Agent sessions are captured just like regular sessions. You'll finally know if that background refactor actually finished.
+
+**Q: What's the Beads integration?**
+A: If you use [Beads](https://github.com/steveyegge/beads) (the AI-friendly issue tracker), this tool automatically discovers and displays all your Beads issues per project. Filter by open/closed, bug/feature/task, and see close reasons for resolved issues. Perfect for tracking what your agents have been working on.
 
 **Q: I accidentally mass-deleted my ~/.claude folder. Can this help?**
 A: No. This tool reads history, it doesn't create it. I'm sorry for your loss. 🕯️
