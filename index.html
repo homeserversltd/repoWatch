@@ -1512,10 +1512,15 @@
             renderProjectList();
             updateSuggestionsCount();
 
-            // Select first project by default
+            // Select last used project, or first project if none saved
             const projects = Object.keys(historyData.projects);
             if (projects.length > 0) {
-                selectProject(projects[0]);
+                const lastProject = localStorage.getItem('lastSelectedProject');
+                if (lastProject && projects.includes(lastProject)) {
+                    selectProject(lastProject);
+                } else {
+                    selectProject(projects[0]);
+                }
             }
 
             // Set up event listeners
@@ -1611,6 +1616,7 @@
 
         function selectProject(projectPath) {
             selectedProject = projectPath;
+            localStorage.setItem('lastSelectedProject', projectPath);
             renderProjectList();
             renderProjectContent(projectPath);
         }

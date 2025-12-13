@@ -54,7 +54,7 @@ Finally, you can answer: *"What was I working on in that recipe app last Thursda
 - **Smart State Detection** — Know when Claude needs approval, is asking a question, is processing, or has completed a task
 - **Configurable Alerts** — Sound notifications when any session waits too long for input (configurable delay, default 20s)
 - **Browser Notifications** — Get notified even when the tab is in the background
-- **Terminal Window Control** — Jump to any project's terminal with one click (even full-screen windows across Spaces!)
+- **Terminal Window Control** — Jump to any project's terminal with one click (macOS only, works with full-screen/Spaces)
 - **Per-Project Window List** — See all terminal windows grouped by project for easy navigation
 
 ## Perfect For
@@ -245,10 +245,11 @@ The Live Monitor provides real-time observability across all your active Claude 
 - Browser notifications (works in background tabs)
 - Visual indicators in the UI
 
-**Terminal Window Control:**
+**Terminal Window Control (macOS only):**
 - Click "Jump" to instantly focus that project's terminal window
 - Works even with full-screen windows across different macOS Spaces
 - Shows all terminal windows grouped by project
+- *Note: Terminal control uses AppleScript and is currently macOS-only*
 
 ## Configuration
 
@@ -289,7 +290,7 @@ A: The Live tab shows real-time status of all your active Claude sessions. It de
 A: By design! The "waiting delay" setting (default 20s) prevents alert spam. You only get notified if Claude has been waiting for approval or asking a question for longer than this threshold. When Claude completes a task and is just "Ready" for your next instruction, no alert fires — that's intentional.
 
 **Q: How does the "Jump to Terminal" feature work?**
-A: On macOS, clicking the Jump button uses AppleScript to focus the Terminal window for that project. It even works with full-screen windows across different Spaces — it uses the Terminal Window menu to switch, which bypasses the usual Space restrictions.
+A: On macOS, clicking the Jump button uses AppleScript to focus the Terminal window for that project. It even works with full-screen windows across different Spaces — it uses the Terminal Window menu to switch, which bypasses the usual Space restrictions. This feature is currently macOS-only; on other platforms the Jump buttons won't appear.
 
 **Q: I accidentally mass-deleted my ~/.claude folder. Can this help?**
 A: No. This tool reads history, it doesn't create it. I'm sorry for your loss. 🕯️
