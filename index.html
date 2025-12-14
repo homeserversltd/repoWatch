@@ -401,18 +401,50 @@
             letter-spacing: 0.5px;
         }
 
+        .conversation-item {
+            margin-bottom: 16px;
+        }
+
         .message-item {
             padding: 8px 12px;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
             background-color: var(--bg-secondary);
             border-radius: 6px;
             border-left: 3px solid var(--accent-blue);
+        }
+
+        .message-item.user-message {
+            border-left-color: var(--accent-blue);
+            background-color: rgba(88, 166, 255, 0.08);
+        }
+
+        .message-item.assistant-message {
+            border-left-color: var(--accent-purple);
+            background-color: rgba(163, 113, 247, 0.08);
+            margin-left: 16px;
         }
 
         .message-time {
             font-size: 11px;
             color: var(--text-muted);
             margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .message-role {
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .user-message .message-role {
+            color: var(--accent-blue);
+        }
+
+        .assistant-message .message-role {
+            color: var(--accent-purple);
         }
 
         .message-content {
@@ -1546,7 +1578,8 @@
         // Load data
         async function loadData() {
             try {
-                const response = await fetch('history_data.json');
+                // Add cache-busting timestamp
+                const response = await fetch(`history_data.json?t=${Date.now()}`);
                 if (!response.ok) throw new Error('Failed to load data');
                 historyData = await response.json();
                 initializeUI();
@@ -1811,9 +1844,12 @@
         function toggleMessages(sessionId) {
             const messagesList = document.getElementById(`messages-${sessionId}`);
             const badge = document.getElementById(`badge-${sessionId}`);
+            console.log('toggleMessages called:', sessionId, 'found:', !!messagesList);
             if (messagesList) {
                 messagesList.classList.toggle('expanded');
                 badge.classList.toggle('expanded');
+            } else {
+                console.error('Could not find messages element for session:', sessionId);
             }
         }
 
@@ -1822,15 +1858,24 @@
 
             return `
                 <div class="messages-list" id="messages-${sessionId}">
-                    <div class="messages-title">User Messages</div>
+                    <div class="messages-title">Conversation</div>
                     ${messages.map(msg => {
                         const time = msg.timestamp
                             ? new Date(msg.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
                             : '';
+                        const hasResponse = msg.assistant_response && msg.assistant_response.trim();
                         return `
-                            <div class="message-item">
-                                ${time ? `<div class="message-time">${time}</div>` : ''}
-                                <div class="message-content">${highlightSearch(escapeHtml(msg.content))}</div>
+                            <div class="conversation-item">
+                                <div class="message-item user-message">
+                                    ${time ? `<div class="message-time"><span class="message-role">You</span> ${time}</div>` : '<div class="message-time"><span class="message-role">You</span></div>'}
+                                    <div class="message-content">${highlightSearch(escapeHtml(msg.content))}</div>
+                                </div>
+                                ${hasResponse ? `
+                                <div class="message-item assistant-message">
+                                    <div class="message-time"><span class="message-role">Claude</span></div>
+                                    <div class="message-content">${highlightSearch(escapeHtml(msg.assistant_response))}</div>
+                                </div>
+                                ` : ''}
                             </div>
                         `;
                     }).join('')}

@@ -148,7 +148,7 @@ python3 claude_history_analyzer.py --force-refresh
 python3 claude_history_analyzer.py --output ~/my-history.json
 ```
 
-### Daily Auto-Updates (Set It and Forget It)
+### Hourly Auto-Updates (Set It and Forget It)
 
 Because you *will* forget to run this manually:
 
@@ -156,8 +156,8 @@ Because you *will* forget to run this manually:
 # Edit crontab
 crontab -e
 
-# Add this line (runs daily at 9 PM)
-0 21 * * * /path/to/claude-central/run_analyzer.sh
+# Add this line (runs every hour at minute 0)
+0 * * * * /path/to/claude-central/run_analyzer.sh
 ```
 
 Now your history updates itself while you're busy starting another project.

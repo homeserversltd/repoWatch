@@ -19,6 +19,24 @@ from typing import Optional
 import hashlib
 import argparse
 
+
+def load_dotenv():
+    """Load environment variables from .env file if it exists."""
+    env_file = Path(__file__).parent / ".env"
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    # Remove quotes if present
+                    value = value.strip().strip('"').strip("'")
+                    os.environ.setdefault(key.strip(), value)
+
+
+# Load .env file before importing anthropic
+load_dotenv()
+
 # Anthropic API for summarization
 try:
     import anthropic
@@ -79,8 +97,14 @@ def load_history_entries() -> list[dict]:
     return entries
 
 
-def load_session_data(project_path: str, session_id: str) -> dict:
-    """Load session data including summaries and messages."""
+def load_session_data(project_path: str, session_id: str, date_filter: str = None) -> dict:
+    """Load session data including summaries and messages with assistant responses.
+
+    Args:
+        project_path: Path to the project
+        session_id: Session UUID
+        date_filter: Optional date string (YYYY-MM-DD) to filter entries to a specific day
+    """
     slug = get_project_slug(project_path)
     session_dir = PROJECTS_DIR / slug
     session_file = session_dir / f"{session_id}.jsonl"
@@ -88,6 +112,7 @@ def load_session_data(project_path: str, session_id: str) -> dict:
     data = {
         "summaries": [],
         "user_messages": [],
+        "conversations": [],  # Paired user messages with assistant responses
         "assistant_messages": [],
         "tool_calls": [],
         "file_changes": [],
@@ -98,6 +123,8 @@ def load_session_data(project_path: str, session_id: str) -> dict:
     if not session_file.exists():
         return data
 
+    # First pass: collect all entries with timestamps
+    entries = []
     with open(session_file, 'r') as f:
         for line in f:
             try:
@@ -105,44 +132,102 @@ def load_session_data(project_path: str, session_id: str) -> dict:
                 entry_type = entry.get("type")
                 timestamp = parse_timestamp(entry.get("timestamp"))
 
+                # Skip entries that don't match the date filter
+                if date_filter:
+                    if not timestamp:
+                        continue  # Skip entries without timestamps when filtering by date
+                    entry_date = timestamp.strftime("%Y-%m-%d")
+                    if entry_date != date_filter:
+                        continue
+
+                entries.append((entry, timestamp))
+
                 if timestamp:
                     if not data["first_timestamp"] or timestamp < data["first_timestamp"]:
                         data["first_timestamp"] = timestamp
                     if not data["last_timestamp"] or timestamp > data["last_timestamp"]:
                         data["last_timestamp"] = timestamp
 
-                if entry_type == "summary":
-                    data["summaries"].append(entry.get("summary", ""))
-                elif entry_type == "user":
-                    msg = entry.get("message", {})
-                    content = msg.get("content", "")
-                    if isinstance(content, str) and content.strip():
-                        data["user_messages"].append({
-                            "content": content,
-                            "timestamp": timestamp.isoformat() if timestamp else None
-                        })
-                elif entry_type == "assistant":
-                    msg = entry.get("message", {})
-                    content = msg.get("content", [])
-                    for item in (content if isinstance(content, list) else [content]):
-                        if isinstance(item, dict):
-                            if item.get("type") == "tool_use":
-                                tool_name = item.get("name", "")
-                                tool_input = item.get("input", {})
-                                data["tool_calls"].append({
-                                    "name": tool_name,
-                                    "input": tool_input,
-                                    "timestamp": timestamp.isoformat() if timestamp else None
-                                })
-                elif entry_type == "file-history-snapshot":
-                    snapshot = entry.get("snapshot", {})
-                    if snapshot.get("trackedFileBackups"):
-                        data["file_changes"].append({
-                            "files": list(snapshot["trackedFileBackups"].keys()),
-                            "timestamp": timestamp.isoformat() if timestamp else None
-                        })
             except json.JSONDecodeError:
                 continue
+
+    # Second pass: collect summaries and meaningful user messages only
+    # Filter out: continuation summaries, short approvals, tool confirmations
+    SKIP_PATTERNS = [
+        "This session is being continued from a previous conversation",
+        "Analysis:",
+        "Summary:",
+        "<system-reminder>",
+        "<command-message>",
+        "<command-name>",
+    ]
+    SHORT_APPROVAL_PHRASES = ["ok", "yes", "no", "continue", "done", "thanks", "thank you", "got it", "sure"]
+
+    def is_meaningful_user_message(content: str) -> bool:
+        """Check if a user message is meaningful (not a continuation or short approval)."""
+        if not content or not content.strip():
+            return False
+        content_stripped = content.strip()
+        # Skip continuation summaries and system content
+        for pattern in SKIP_PATTERNS:
+            if pattern in content_stripped:
+                return False
+        # Skip very short approval messages
+        content_lower = content_stripped.lower()
+        if len(content_stripped) < 50 and content_lower in SHORT_APPROVAL_PHRASES:
+            return False
+        # Skip if it's mostly just whitespace or too short
+        if len(content_stripped) < 10:
+            return False
+        return True
+
+    for entry, timestamp in entries:
+        entry_type = entry.get("type")
+
+        if entry_type == "summary":
+            data["summaries"].append(entry.get("summary", ""))
+
+        elif entry_type == "user":
+            # Only capture meaningful user messages
+            msg = entry.get("message", {})
+            content = msg.get("content", "")
+            if isinstance(content, str) and is_meaningful_user_message(content):
+                user_msg = {
+                    "content": content,
+                    "timestamp": timestamp.isoformat() if timestamp else None
+                }
+                data["user_messages"].append(user_msg)
+                # Also add to conversations (without response pairing for simplicity)
+                data["conversations"].append({
+                    "user": user_msg,
+                    "assistant_response": ""  # Don't pair - just show user message
+                })
+
+        elif entry_type == "assistant":
+            # Extract tool calls from assistant messages
+            msg = entry.get("message", {})
+            content = msg.get("content", [])
+            for item in (content if isinstance(content, list) else [content]):
+                if isinstance(item, dict) and item.get("type") == "tool_use":
+                    tool_name = item.get("name", "")
+                    tool_input = item.get("input", {})
+                    data["tool_calls"].append({
+                        "name": tool_name,
+                        "input": tool_input,
+                        "timestamp": timestamp.isoformat() if timestamp else None
+                    })
+
+        elif entry_type == "file-history-snapshot":
+            snapshot = entry.get("snapshot", {})
+            if snapshot.get("trackedFileBackups"):
+                data["file_changes"].append({
+                    "files": list(snapshot["trackedFileBackups"].keys()),
+                    "timestamp": timestamp.isoformat() if timestamp else None
+                })
+
+    # Legacy compatibility: keep user_messages populated
+    if not data["user_messages"] and data["conversations"]:
+        data["user_messages"] = [conv["user"] for conv in data["conversations"]]
 
     return data
 
@@ -586,12 +671,15 @@ def analyze_history(output_path: Path = DEFAULT_OUTPUT, force_refresh: bool = Fa
 
         if session_id and timestamp:
             date_key = timestamp.strftime("%Y-%m-%d")
-            if session_id not in projects[project_path]["sessions"]:
-                projects[project_path]["sessions"][session_id] = {
+            # Use session_id + date as key to handle multi-day sessions
+            session_date_key = f"{session_id}:{date_key}"
+            if session_date_key not in projects[project_path]["sessions"]:
+                projects[project_path]["sessions"][session_date_key] = {
+                    "session_id": session_id,
                     "date": date_key,
                     "prompts": [],
                 }
-            projects[project_path]["sessions"][session_id]["prompts"].append({
+            projects[project_path]["sessions"][session_date_key]["prompts"].append({
                 "display": entry.get("display", ""),
                 "timestamp": timestamp.isoformat()
             })
@@ -628,9 +716,10 @@ def analyze_history(output_path: Path = DEFAULT_OUTPUT, force_refresh: bool = Fa
         commits = get_git_commits_for_project(project_path)
         tags = get_git_tags_for_project(project_path)
 
-        # Process each session
-        for session_id, session_meta in project_info["sessions"].items():
-            session_hash = f"{project_path}:{session_id}"
+        # Process each session (session_date_key is "session_id:date")
+        for session_date_key, session_meta in project_info["sessions"].items():
+            session_id = session_meta["session_id"]
+            session_hash = f"{project_path}:{session_date_key}"
 
             # Skip already processed sessions unless force refresh
             if session_hash in processed_sessions and not force_refresh:
@@ -638,8 +727,8 @@ def analyze_history(output_path: Path = DEFAULT_OUTPUT, force_refresh: bool = Fa
 
             date_key = session_meta["date"]
 
-            # Load detailed session data
-            session_data = load_session_data(project_path, session_id)
+            # Load detailed session data, filtered to only this day's entries
+            session_data = load_session_data(project_path, session_id, date_filter=date_key)
 
             if not session_data["user_messages"] and not session_data["summaries"]:
                 continue
@@ -656,11 +745,19 @@ def analyze_history(output_path: Path = DEFAULT_OUTPUT, force_refresh: bool = Fa
             session_output = {
                 "session_id": session_id,
                 "summary": summary,
-                "message_count": len(session_data["user_messages"]),
+                "message_count": len(session_data["conversations"]) or len(session_data["user_messages"]),
                 "messages": [
                     {
-                        "content": msg["content"][:1000],  # Truncate long messages
-                        "timestamp": msg["timestamp"]
+                        "content": conv["user"]["content"][:1000],  # Truncate long messages
+                        "timestamp": conv["user"]["timestamp"],
+                        "assistant_response": conv.get("assistant_response", "")
+                    }
+                    for conv in session_data["conversations"]
+                ] if session_data["conversations"] else [
+                    {
+                        "content": msg["content"][:1000],
+                        "timestamp": msg["timestamp"],
+                        "assistant_response": ""
                     }
                     for msg in session_data["user_messages"]
                 ],
@@ -705,11 +802,17 @@ def analyze_history(output_path: Path = DEFAULT_OUTPUT, force_refresh: bool = Fa
     print("\nGenerating daily summaries...")
     days_to_summarize = set()
     for session_hash in new_processed:
-        project_path, session_id = session_hash.rsplit(":", 1)
-        if project_path in projects:
-            session_meta = projects[project_path]["sessions"].get(session_id)
-            if session_meta:
-                days_to_summarize.add((project_path, session_meta["date"]))
+        # session_hash is "project_path:session_id:date_key"
+        parts = session_hash.rsplit(":", 2)
+        if len(parts) == 3:
+            project_path, _, date_key = parts[0], parts[1], parts[2]
+            # Reconstruct from the original split point (project_path may contain colons on Windows)
+            session_date_key = f"{parts[1]}:{parts[2]}"
+            # Find where project_path ends by looking for the session_date_key
+            idx = session_hash.rfind(f":{session_date_key}")
+            if idx > 0:
+                project_path = session_hash[:idx]
+                days_to_summarize.add((project_path, date_key))
 
     for project_path, date_key in days_to_summarize:
         if project_path in output_data:
