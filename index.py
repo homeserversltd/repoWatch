@@ -9,7 +9,7 @@ Uses inotify for file watching, git for commit tracking, and animations for acti
 import asyncio
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -91,9 +91,13 @@ class RepoWatchApp(App):
         self.repo = Repo(repo_path)
         self.observer = None
         self.session_start = datetime.now()
+        self.last_commit_time = None  # Track when we last checked commits
         self.active_changes = {}  # file_path -> timestamp
         self.animation_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         self.frame_index = 0
+
+        # Initialize last_commit_time to 1 hour ago for first run
+        self.last_commit_time = datetime.now() - timedelta(hours=1)
 
     def compose(self) -> ComposeResult:
         """Build the UI layout."""
@@ -129,6 +133,9 @@ class RepoWatchApp(App):
         # Start animation loop
         asyncio.create_task(self.animation_loop())
 
+        # Start commit monitoring loop
+        asyncio.create_task(self.commit_monitor_loop())
+
         # Initial status update
         await self.update_status()
 
@@ -145,7 +152,8 @@ class RepoWatchApp(App):
             rel_path = Path(file_path).relative_to(self.repo_path)
             self.active_changes[rel_path] = datetime.now()
 
-            # Update status
+            # Schedule UI updates on the main thread
+            self.call_later(self.update_active_changes)
             asyncio.create_task(self.update_status())
         except ValueError:
             pass  # File outside repo
@@ -172,6 +180,31 @@ class RepoWatchApp(App):
 
             await asyncio.sleep(0.1)
 
+    async def commit_monitor_loop(self):
+        """Periodically check for new commits."""
+        while True:
+            try:
+                # Check if there are new commits
+                new_committed_files = self.get_recent_commits()
+                # Always update the committed files pane (even if empty)
+                committed_widget = self.query_one("#committed-files", Static)
+                if new_committed_files:
+                    file_list = "\n".join(f"✅ {file}" for file in new_committed_files)
+                    committed_widget.update(file_list)
+                else:
+                    committed_widget.update("No recent commits")
+
+                # Update status bar
+                uncommitted = self.get_uncommitted_files()
+                status_widget = self.query_one("#status-bar", Static)
+                duration = datetime.now() - self.session_start
+                minutes = int(duration.total_seconds() / 60)
+                status_widget.update(f"Session: {minutes}m | Uncommitted: {len(uncommitted)} | Committed: {len(new_committed_files)}")
+            except Exception as e:
+                pass  # Silently handle git errors
+
+            await asyncio.sleep(2.0)  # Check every 2 seconds
+
     def update_active_changes(self):
         """Update the active changes pane."""
         changes_widget = self.query_one("#active-changes", Static)
@@ -194,12 +227,24 @@ class RepoWatchApp(App):
             return []
 
     def get_recent_commits(self):
-        """Get files from recent commits."""
+        """Get files from recent commits since last check."""
         try:
+            # Get the latest commit time we've processed
+            if self.last_commit_time is None:
+                # First time - get all commits since session start
+                since_time = self.session_start
+            else:
+                # Subsequent times - get commits since last processed time
+                since_time = self.last_commit_time
+
             commits = list(self.repo.iter_commits(
-                since=self.session_start,
-                max_count=10
+                since=since_time,
+                max_count=20  # Increased to catch more commits
             ))
+
+            if commits:
+                # Update last commit time to the most recent commit we found
+                self.last_commit_time = commits[0].committed_datetime
 
             committed_files = []
             for commit in commits:
@@ -207,11 +252,13 @@ class RepoWatchApp(App):
                 committed_files.extend(files)
 
             return list(set(committed_files))
-        except:
+        except Exception as e:
+            # Reset last_commit_time on error to force full refresh next time
+            self.last_commit_time = None
             return []
 
     async def update_status(self):
-        """Update all panes."""
+        """Update uncommitted files and status bar."""
         # Update uncommitted files
         uncommitted = self.get_uncommitted_files()
         uncommitted_widget = self.query_one("#uncommitted-files", Static)
@@ -222,21 +269,23 @@ class RepoWatchApp(App):
         else:
             uncommitted_widget.update("No uncommitted changes")
 
-        # Update committed files
-        committed = self.get_recent_commits()
-        committed_widget = self.query_one("#committed-files", Static)
-
-        if committed:
-            file_list = "\n".join(f"✅ {file}" for file in committed)
-            committed_widget.update(file_list)
-        else:
-            committed_widget.update("No recent commits")
-
-        # Update status bar
+        # Update status bar (committed files are handled by commit_monitor_loop)
         status_widget = self.query_one("#status-bar", Static)
         duration = datetime.now() - self.session_start
         minutes = int(duration.total_seconds() / 60)
-        status_widget.update(f"Session: {minutes}m | Uncommitted: {len(uncommitted)} | Committed: {len(committed)}")
+
+        # Get current committed files count (this will be updated by the monitor loop)
+        try:
+            committed_files = []
+            if self.last_commit_time:
+                commits = list(self.repo.iter_commits(since=self.session_start, max_count=20))
+                for commit in commits:
+                    committed_files.extend(commit.stats.files.keys())
+            committed_count = len(set(committed_files))
+        except:
+            committed_count = 0
+
+        status_widget.update(f"Session: {minutes}m | Uncommitted: {len(uncommitted)} | Committed: {committed_count}")
 
     def action_quit_app(self) -> None:
         """Quit the application."""
