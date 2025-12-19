@@ -415,4 +415,3 @@ MIT — Built for the terminal, by terminal users.
 🔍 **Your repository's pulse, in beautiful terminal form.**
 
 ⚡ **Happy watching!**
-

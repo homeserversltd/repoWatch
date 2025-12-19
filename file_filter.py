@@ -61,3 +61,4 @@ class FileChangeHandler(FileSystemEventHandler):
             return False
 
         return True
+

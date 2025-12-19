@@ -414,4 +414,3 @@ class GitTracker:
 
         return None
 
-

@@ -207,4 +207,3 @@ class KeybindFooter(Widget):
             id="keybind-footer"
         )
 
-

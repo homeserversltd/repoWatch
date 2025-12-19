@@ -180,4 +180,3 @@ class AnimationEngine:
         ]
         return random.choice(celebrations)
 
-
