@@ -30,119 +30,155 @@ DEFAULT_COLORS = {
 # Textual CSS styles
 DEFAULT_STYLES = """
 /* Main application styles */
-Screen {{
+Screen {
     background: {bg_primary};
     color: {text_primary};
-}}
+    layout: vertical;
+}
 
-Header {{
+Header {
     background: {bg_secondary};
     border-bottom: solid {border_color};
     color: {text_primary};
     padding: 1 2;
-}}
+    height: 3;
+}
 
-StatusBar {{
+
+#main-layout {
+    height: 1fr;  /* Take remaining space minus footer */
+}
+
+StatusBar {
     background: {bg_tertiary};
     border-top: solid {border_color};
     color: {text_secondary};
     padding: 0 2;
-}}
+    height: 3;
+}
+
+#keybind-footer {
+    background: {bg_secondary};
+    border-top: solid {border_color};
+    color: {text_secondary};
+    padding: 0 2;
+    height: 3;
+    layout: horizontal;
+    dock: bottom;
+}
+
+.keybind {
+    color: {text_secondary};
+    margin-right: 3;
+}
+
 
 /* Pane styles */
-Pane {{
+Pane {
     background: {bg_secondary};
     border: solid {border_color};
     color: {text_primary};
-}}
+}
 
-Pane:focus {{
+Pane:focus {
     border: solid {accent_blue};
-}}
+}
 
-PaneTitle {{
+.pane-wrapper {
+    height: 100%;
+}
+
+.pane-title {
     background: {bg_tertiary};
     color: {text_secondary};
     padding: 0 1;
     text-style: bold;
-}}
+    height: 1;
+}
+
+.file-content {
+    color: {text_primary};
+    padding: 0 1;
+    height: 100%;
+    overflow: auto;
+}
 
 /* Tree/List styles */
-Tree {{
+Tree {
     background: {bg_secondary};
     color: {text_primary};
-}}
+}
 
-Tree > .tree--guides {{
+Tree > .tree--guides {
     color: {border_color};
-}}
+}
 
-Tree > .tree--cursor {{
+Tree > .tree--cursor {
     background: {bg_tertiary};
     color: {accent_blue};
-}}
+}
 
-Tree > .tree--highlight {{
+Tree > .tree--highlight {
     background: {accent_blue};
     color: {bg_primary};
-}}
+}
 
-Tree > .tree--highlight-line {{
+Tree > .tree--highlight-line {
     background: {bg_tertiary};
-}}
+}
 
 /* Button styles */
-Button {{
+Button {
     background: {bg_tertiary};
     border: solid {border_color};
     color: {text_primary};
     padding: 0 1;
-}}
+}
 
-Button:hover {{
+Button:hover {
     background: {accent_blue};
     color: {bg_primary};
-}}
+}
 
-Button:focus {{
+Button:focus {
     border: solid {accent_blue};
-}}
+}
 
 /* File status indicators */
-.modified {{
+.modified {
     color: {accent_orange};
-}}
+}
 
-.staged {{
+.staged {
     color: {accent_green};
-}}
+}
 
-.untracked {{
+.untracked {
     color: {accent_purple};
-}}
+}
 
-.committed {{
+.committed {
     color: {text_secondary};
-}}
+}
 
 /* Animation area */
-.animation-area {{
+.animation-area {
     background: {bg_primary};
     color: {accent_blue};
     text-align: center;
     padding: 2;
-}}
+}
 
 /* Cluster groups */
-.cluster-group {{
+.cluster-group {
     color: {text_secondary};
     text-style: italic;
-}}
+}
 
-.cluster-count {{
+.cluster-count {
     color: {accent_blue};
     text-style: bold;
-}}
+}
 """
 
 
@@ -150,13 +186,13 @@ class ThemeManager:
     """Manages terminal UI themes and color schemes."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config or $}
+        self.config = config or {}
         self.colors = self._load_colors()
         self.styles = self._load_styles()
 
     def _load_colors(self) -> Dict[str, str]:
         """Load color palette from configuration."""
-        config_colors = self.config.get("config", $}).get("color_palette", $})
+        config_colors = self.config.get("config", {}).get("color_palette", {})
         colors = DEFAULT_COLORS.copy()
         colors.update(config_colors)
         return colors
@@ -185,25 +221,25 @@ class ThemeManager:
 
     def apply_theme_colors_to_dict(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply theme colors to a dictionary of style values."""
-        result = $}
+        result = {}
         for key, value in data.items():
             if isinstance(value, str):
                 # Replace color placeholders with actual colors
                 for color_name, color_value in self.colors.items():
-                    value = value.replace(f"$$$color_name}}}", color_value)
+                    value = value.replace(f"{{{color_name}}}", color_value)
             result[key] = value
         return result
 
     def get_component_style(self, component: str, element: str) -> str:
         """Get a specific component style."""
-        components = self.config.get("config", $}).get("component_styles", $})
-        component_config = components.get(component, $})
+        components = self.config.get("config", {}).get("component_styles", {})
+        component_config = components.get(component, {})
         return component_config.get(element, "")
 
     def get_textual_style_mapping(self) -> Dict[str, str]:
         """Get mapping of style names to colors for Textual widgets."""
-        mapping = self.config.get("config", $}).get("textual_styles", $})
-        result = $}
+        mapping = self.config.get("config", {}).get("textual_styles", {})
+        result = {}
 
         for style_name, color_name in mapping.items():
             if color_name in self.colors:
@@ -235,7 +271,7 @@ class ThemeOrchestrator:
 
     def __init__(self, module_path: Path, parent_config: Optional[Dict[str, Any]] = None):
         self.module_path = module_path
-        self.parent_config = parent_config or $}
+        self.parent_config = parent_config or {}
         self.config_path = module_path / "index.json"
         self.config = self._load_config()
         self.theme_manager = ThemeManager(self.config)
@@ -246,11 +282,11 @@ class ThemeOrchestrator:
             with open(self.config_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(f"Warning: Themes config not found: $self.config_path}")
-            return $}
+            print(f"Warning: Themes config not found: {self.config_path}")
+            return {}
         except json.JSONDecodeError as e:
-            print(f"Warning: Invalid themes config JSON: $e}")
-            return $}
+            print(f"Warning: Invalid themes config JSON: {e}")
+            return {}
 
     def get_theme_manager(self) -> ThemeManager:
         """Get the theme manager instance."""
@@ -268,7 +304,7 @@ def main(module_path: Path, parent_config: Optional[Dict[str, Any]] = None) -> b
         return True
 
     except Exception as e:
-        print(f"Themes module error: $e}")
+        print(f"Themes module error: {e}")
         import traceback
         traceback.print_exc()
         return False

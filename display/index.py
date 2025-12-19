@@ -290,6 +290,48 @@ class FileClusterer:
         return f"{cluster_prefix}{path} {count_format.format(count=count)}"
 
 
+def display_all_files_flat(file_paths: List[str], repo_root: Path,
+                          config: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Display all files as a flat list without clustering.
+
+    Args:
+        file_paths: List of file paths
+        repo_root: Repository root path
+        config: Configuration dictionary
+
+    Returns:
+        Formatted display string with all files listed individually
+    """
+    if not file_paths:
+        return "No files to display"
+
+    # Get display configuration
+    display_config = config.get("config", {}).get("display_formats", {}) if config else {}
+    file_prefix = display_config.get("file_prefix", "📄 ")
+
+    # Convert to Path objects and filter/sort
+    paths = []
+    for file_path in file_paths:
+        try:
+            path = Path(file_path)
+            if not display_config.get("show_hidden_files", False) and path.name.startswith('.'):
+                continue
+            paths.append(path)
+        except (ValueError, OSError):
+            continue
+
+    # Sort by name
+    paths.sort()
+
+    # Format each file with prefix
+    lines = []
+    for path in paths:
+        lines.append(f"{file_prefix}{str(path)}")
+
+    return "\n".join(lines)
+
+
 def cluster_files_for_display(file_paths: List[str], repo_root: Path,
                             config: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -378,4 +420,4 @@ def main(module_path: Path, parent_config: Optional[Dict[str, Any]] = None) -> b
 
 
 # Export the main classes for import by other modules
-__all__ = ['FileClusterer', 'AnimationEngine', 'cluster_files_for_display', 'FileCluster', 'ClusterGroup']
+__all__ = ['FileClusterer', 'AnimationEngine', 'cluster_files_for_display', 'display_all_files_flat', 'FileCluster', 'ClusterGroup']

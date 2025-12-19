@@ -21,7 +21,10 @@ for dep, version in deps.items():
     print(f'Installing {dep}{version}...')
     import subprocess
     subprocess.run(['pip', 'install', '--break-system-packages', f'{dep}{version}'], check=True)
-"
+" 2>&1 || {
+        echo "Failed to install dependencies"
+        exit 1
+    }
 fi
 
 # Parse command line arguments
@@ -95,7 +98,11 @@ echo "Starting repoWatch..."
 echo "Repository: $REPO_PATH"
 echo "Theme: $THEME"
 echo "Refresh: ${REFRESH_INTERVAL}s"
-echo "Press Ctrl+C to exit"
+echo ""
+echo "Quit options:"
+echo "  q or ESC key: Graceful quit"
+echo "  Ctrl+C: Force quit"
+echo "  F1: Show help"
 echo ""
 
 python3 index.py

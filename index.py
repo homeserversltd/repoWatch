@@ -10,9 +10,19 @@ import os
 import sys
 import json
 import subprocess
+import signal
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+
+# Global flag for signal handling
+exit_requested = False
+
+def signal_handler(signum, frame):
+    """Handle SIGINT (Ctrl+C) gracefully."""
+    global exit_requested
+    print("\nReceived exit signal. Shutting down repoWatch...")
+    exit_requested = True
 
 class RepoWatchOrchestrator:
     """Root orchestrator for the repoWatch infiniteIndex system."""
@@ -98,6 +108,13 @@ class RepoWatchOrchestrator:
 
     def _execute_child(self, child_path: Path, child_name: str) -> bool:
         """Execute a child module."""
+        global exit_requested
+
+        # Check if exit was requested before starting child
+        if exit_requested:
+            print(f"Exit requested, skipping child module: {child_name}")
+            return False
+
         child_index_py = child_path / "index.py"
 
         if not child_index_py.exists():
@@ -125,6 +142,9 @@ class RepoWatchOrchestrator:
                 # Restore original order for any other modifications
                 sys.path = original_path
 
+        except SystemExit:
+            # If a module calls sys.exit(), let it exit the entire process
+            raise
         except Exception as e:
             print(f"Error executing child module '{child_name}': {e}")
             execution_config = self.config.get("execution", {})
@@ -134,6 +154,8 @@ class RepoWatchOrchestrator:
 
     def execute(self) -> bool:
         """Execute all child modules according to configuration."""
+        global exit_requested
+
         print("repoWatch - Starting infiniteIndex orchestrator")
 
         # Check dependencies first
@@ -148,6 +170,12 @@ class RepoWatchOrchestrator:
         success = True
 
         for child_name in children:
+            # Check if exit was requested between children
+            if exit_requested:
+                print("Exit requested during execution")
+                success = False
+                break
+
             child_path = self.module_path / child_name
 
             if not child_path.exists():
@@ -162,12 +190,12 @@ class RepoWatchOrchestrator:
                 success = False
                 break
 
-        if success:
+        if success and not exit_requested:
             print("repoWatch orchestrator completed successfully")
         else:
-            print("repoWatch orchestrator completed with errors")
+            print("repoWatch orchestrator completed with errors or was interrupted")
 
-        return success
+        return success and not exit_requested
 
     def get_config(self) -> Dict[str, Any]:
         """Get the loaded configuration."""
@@ -180,9 +208,17 @@ class RepoWatchOrchestrator:
 
 def main(module_path: Optional[Path] = None, parent_config: Optional[Dict[str, Any]] = None) -> bool:
     """Entry point for the repoWatch orchestrator."""
+    global exit_requested
+
+    # Set up signal handler for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         orchestrator = RepoWatchOrchestrator(module_path)
         return orchestrator.execute()
+    except SystemExit:
+        # If any module calls sys.exit(), let it exit the entire process
+        raise
     except KeyboardInterrupt:
         print("\nrepoWatch orchestrator interrupted by user")
         return False
