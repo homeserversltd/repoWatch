@@ -8,18 +8,11 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Virtual environment setup (uncomment if needed)
-# if [ ! -d "venv" ]; then
-#     echo "Creating virtual environment..."
-#     python3 -m venv venv
-# fi
-#
-# # Activate virtual environment
-# source venv/bin/activate
-
-# Dependencies should be installed globally or in venv
-# If using venv, activate it above this line
-# For system-wide install: pip install --break-system-packages -r requirements.txt
+# Check if dependencies are installed system-wide
+if ! python3 -c "import textual" 2>/dev/null; then
+    echo "Installing dependencies system-wide..."
+    pip install --break-system-packages -r requirements.txt
+fi
 
 # Parse command line arguments
 REPO_PATH="."

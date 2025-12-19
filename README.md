@@ -1,319 +1,418 @@
-# Claude Central
+# repoWatch
 
-> *"Wait, which project was I working on? And did that agent ever finish the refactor?"* — You, probably
+> *"What's happening in my codebase right now? What's been changed since I started working?"* — You, probably
 
-![Claude](https://img.shields.io/badge/Powered%20by-Claude%20Opus%204.5-blueviolet)
-![Vibe](https://img.shields.io/badge/Vibe-Maximum-ff69b4)
-![Projects](https://img.shields.io/badge/Projects-Too%20Many-orange)
-![ADHD](https://img.shields.io/badge/ADHD-Friendly-brightgreen)
-![Beads](https://img.shields.io/badge/Beads-Integrated-yellow)
+![TUI](https://img.shields.io/badge/TUI-Terminal-blueviolet)
+![Python](https://img.shields.io/badge/Python-3.9+-ff69b4)
+![Textual](https://img.shields.io/badge/Textual-TUI-orange)
+![Git](https://img.shields.io/badge/Git-Integrated-brightgreen)
+![ASCII](https://img.shields.io/badge/ASCII-Animations-yellow)
 ![Live](https://img.shields.io/badge/Live-Monitoring-red)
 
 ## The Problem
 
-It's 2 AM. You have **7 projects open**. You've spun up **3 agents** — one is refactoring your auth system, another is building a new feature, and the third one... wait, what was the third one doing? Something about tests? Or was that yesterday?
+It's midnight. You have **3 feature branches open**. You've been working on **that authentication refactor** for two days, but wait — did you commit those changes yet? And what about that API endpoint you were debugging earlier? Did you actually fix it, or are you still scrolling through logs?
 
-You're a **vibe coder**. You don't do linear. You do *parallel*. You context-switch like a caffeinated hummingbird. One moment you're deep in your iOS app, the next you're fixing a bug in your web dashboard, and somehow you ended up redesigning your database schema in a completely different project.
+You're a **deep coder**. You don't just write code. You *inhabit* it. You live in the terminal, you breathe in git status, you dream in file changes. But then comes **The Moment™**: *"Wait, what exactly changed in this repo today?"*
 
-This is the way. This is the *vibe*.
+You freeze. You're knee-deep in code, but you can't remember what you've actually *done*. It's all a beautiful blur of:
 
-But then comes **The Question™**: *"What have you actually accomplished this week?"*
+- *"Just one more file to fix..."*
+- *"Wait, let me check git status first"*
+- *"Oh crap, I need to commit these changes"*
+- *"What was I working on again?"*
 
-You freeze. You have mass-produced more code than an LLM factory. But you couldn't tell anyone what. It's all a beautiful blur of:
-
-- *"Let's spin up two agents for this"*
-- *"Actually, let's also tackle that other thing"*
-- *"Oh wait, I should check on that project from Tuesday"*
-- *"New idea! Let me just quickly..."*
-
-**Your brain is a chaos engine. This tool is your flight recorder.**
+**Your terminal is your home. Your git history is your memory. This tool is your awareness.**
 
 ## The Solution
 
-This tool digs through your Claude Code history across **ALL your projects** and reconstructs what you actually did. It's like having a second brain that actually remembers things — organized by project, by day, by session.
+This is a **real-time git repository watcher** that monitors your active work in a beautiful terminal interface. It shows you exactly what's changed, what's committed, and celebrates your progress with ASCII art animations.
 
-Finally, you can answer: *"What was I working on in that recipe app last Thursday?"* without scrolling through 47 conversation threads.
+Finally, you can answer: *"What have I actually accomplished in this coding session?"* by looking at your terminal, not scrolling through git logs.
 
 ### Features
 
-- **Multi-Project Dashboard** — See all your projects in one place, sorted by activity
-- **Session Timeline** — Every coding session, every project, every day
-- **AI-Powered Summaries** — Claude Opus 4.5 turns your chaotic sessions into coherent bullet points
-- **Expandable Messages** — Click to see exactly what you asked (and what rabbit holes you went down)
-- **GitHub Commit Links** — Connect your sessions to actual commits (proof you shipped something!)
-- **Tag Support** — Links to releases when available, because you're professional like that
-- **[Beads](https://github.com/steveyegge/beads) Integration** — See all your agent issues in one place, filterable by status and type
-- **CLAUDE.md Suggestions** — AI-generated instructions based on your coding patterns, one-click save to CLAUDE.md
-- **Search Everything** — Find that one session where you "fixed the auth thing" across all projects
-- **Date Filtering** — What did I do last week? Last month? Before my mass-deletion spree?
-- **Cron-Ready** — Runs daily in the background. Set it and forget it. (You will forget it. That's the point.)
-
-### Live Monitoring (New in v0.0.2!)
-
-- **Real-Time Session Tracking** — See all active Claude sessions across every project, updated every 3 seconds
-- **Smart State Detection** — Know when Claude needs approval, is asking a question, is processing, or has completed a task
-- **Configurable Alerts** — Sound notifications when any session waits too long for input (configurable delay, default 20s)
-- **Browser Notifications** — Get notified even when the tab is in the background
-- **Terminal Window Control** — Jump to any project's terminal with one click (macOS only, works with full-screen/Spaces)
-- **Per-Project Window List** — See all terminal windows grouped by project for easy navigation
+- **Three-Pane TUI Interface** — Beautiful terminal-based layout with dedicated panes for different views
+- **Real-Time File Monitoring** — Watchdog-powered file system monitoring with instant change detection
+- **Smart File Clustering** — Groups files by parent directories for visual compactness (`/inject/... (5 files)`)
+- **Git History Tracking** — Shows committed changes since session start, organized by directory clusters
+- **ASCII Art Animations** — Celebrates file changes with animated ASCII art in the main display pane
+- **Session-Based Tracking** — Tracks your work session from the moment you start watching
+- **Git Status Integration** — Real-time uncommitted changes with staged/unstaged status
+- **Directory-Based Organization** — Files grouped by common parent paths for efficient navigation
+- **Configurable Refresh Rates** — Adjustable polling intervals for performance tuning
+- **Theme Support** — Dark terminal theme with accent colors (plundered from the original web UI)
+- **Keyboard Navigation** — Full keyboard shortcuts for pane switching and interaction
+- **Repository Targeting** — Point at any git repository for monitoring
 
 ## Perfect For
 
-- 🧠 **ADHD Coders** — External memory for when your internal memory said "nah"
-- 🐙 **Multi-Project Jugglers** — Track progress across your entire portfolio of half-finished side projects
-- 🤖 **Agent Wranglers** — Remember what you told your agents to do (and whether they did it)
-- 🌀 **Context Switchers** — Pick up exactly where you left off, even if "where you left off" was 5 projects ago
-- 📝 **Accountability Seekers** — Prove to yourself (and others) that you're actually productive
+- 🔍 **Deep Divers** — Track exactly what files you've touched in your current coding session
+- 📊 **Session Accountants** — Know what you've committed vs what you've only modified
+- 🎨 **Terminal Aesthetics** — Enjoy beautiful ASCII animations celebrating your work
+- 📁 **Large Project Managers** — See file changes clustered by directory for efficient navigation
+- ⚡ **Real-Time Watchers** — Monitor file changes as they happen with instant feedback
+- 🎯 **Focus Maintainers** — Stay aware of your current work without losing context
 
-## Screenshots
+## Interface
 
-Your command center for multi-project chaos:
+Your real-time git repository command center:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Claude Code History                    [Search...] [Date ▼]   │
-├─────────────────────────────────────────────────────────────────┤
-│  📊 12 Projects  │  47 Active Days  │  156 Sessions  │  89 🏷️  │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌───────────────────────────────────────────┐│
-│  │ PROJECTS     │  │ pet-tracker                     [GitHub] ││
-│  │──────────────│  │───────────────────────────────────────────││
-│  │ pet-tracker47│  │ December 10, 2025                        ││
-│  │ budgetapp 32 │  │ ┌───────────────────────────────────────┐ ││
-│  │ ml-pipeline18│  │ │ 09:13 - 15:35       [18 msgs] [🏷️ v2.1]│ ││
-│  │ website   12 │  │ │ Spun up 2 agents:                     │ ││
-│  │ cli-tool   8 │  │ │ • Agent 1: Push notification system   │ ││
-│  │ api-proxy  5 │  │ │ • Agent 2: Pet activity dashboard     │ ││
-│  │ dotfiles   3 │  │ │ Merged both, deployed to staging      │ ││
-│  │ ...          │  │ └───────────────────────────────────────┘ ││
-│  └──────────────┘  │                                           ││
-│                    │ December 9, 2025                          ││
-│                    │ ┌───────────────────────────────────────┐ ││
-│                    │ │ 22:47 - 02:15       [43 msgs] [2 🏷️]  │ ││
-│                    │ │ • Auth system rewrite (the big one)   │ ││
-│                    │ │ • "Quick" database migration          │ ││
-│                    │ │ • Definitely went to bed at a         │ ││
-│                    │ │   reasonable hour                     │ ││
-│                    │ └───────────────────────────────────────┘ ││
-│                    └───────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ repoWatch - /home/owner/git/serverGenesis              [F1:Help] [F2:Settings] │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  ┌─ Uncommitted Changes ─┐  ┌─ Committed (Session) ─┐  ┌─ Animation Display ──┐  │
+│  │                        │  │                        │  │                      │  │
+│  │ /inject/... (5 files)  │  │ /docs/... (3 files)    │  │    🎉 FILE CHANGED!   │  │
+│  │   ├── flask/           │  │   ├── memories/        │  │                      │  │
+│  │   │   ├── app.py       │  │   │   ├── notary.md   │  │      (∩｀-´)⊃━☆ﾟ.*･｡  │  │
+│  │   │   └── routes.py    │  │   │   └── solved/     │  │                      │  │
+│  │   └── premium/         │  │   └── cold-storage/   │  │   ✨ /inject/flask/   │  │
+│  │       ├── backupTab/   │  │                        │  │      app.py modified  │  │
+│  │       └── fileBrowser/ │  │ /initialization/...   │  │                      │  │
+│  │                        │  │   ├── networkservices/│  │   [ASCII Animation]   │  │
+│  │ /docs/memories/        │  │   └── filesystem/     │  │                      │  │
+│  │   ├── notary.md        │  │                        │  │      \(*^^)/*        │  │
+│  │   └── solved/          │  │ Status: 12 files      │  │                      │  │
+│  │                        │  │ changed, 3 committed  │  │  Last: 2s ago        │  │
+│  └────────────────────────┘  └────────────────────────┘  └──────────────────────┘  │
+│ Session started: 2025-12-19 14:30:00    Git status: Clean (12 uncommitted)         │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Three-Pane Layout
+
+**Left Pane: Uncommitted Changes**
+- Shows files changed but not committed
+- Clustered by parent directory for compactness
+- Indicates staged/unstaged status
+- Real-time updates as you edit files
+
+**Middle Pane: Committed Changes**
+- Files committed since session start
+- Also clustered by directory structure
+- Shows commit messages and timestamps
+- Tracks your session's progress
+
+**Right Pane: Animation Display**
+- Largest pane for visual feedback
+- ASCII art animations on file changes
+- Shows recent activity and celebrations
+- Configurable animation styles
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.9+
-- Claude Code (with some history to analyze)
-- An Anthropic API key (optional, for enhanced summaries)
-- Multiple projects in various states of completion (mandatory for true vibe coders)
+- Git repository to monitor
+- Terminal with support for modern TUI (256 colors recommended)
 
 ### Quick Start
 
 ```bash
-# Clone the repo
-git clone https://github.com/eranshir/claude-central.git
-cd claude-central
+# Navigate to the repoWatch directory
+cd repoWatch
 
-# Install dependencies
-pip install anthropic
+# Point at your git repository and start watching
+# (Virtual environment and dependencies are handled automatically)
+./run.sh --repo /path/to/your/git/repo
 
-# Set up your API key (optional but recommended)
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-
-# Run the analyzer
-python3 claude_history_analyzer.py
-
-# Start the server (includes API for saving suggestions)
-python3 server.py
-# Then open http://localhost:9347
+# Or watch current directory if it's a git repo
+./run.sh --repo .
 ```
+
+**First run will automatically:**
+- Create a virtual environment (`venv/`)
+- Install required dependencies
+- Start monitoring your repository
+
+### Manual Virtual Environment Setup (Optional)
+
+If you prefer to set up manually:
+
+```bash
+# Navigate to the repoWatch directory
+cd repoWatch
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+
+# Install dependencies using venv pip
+venv/bin/pip install -r requirements.txt
+
+# Run the tool
+./run.sh --repo /path/to/your/git/repo
+```
+
+### Virtual Environment Setup
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # Linux/macOS
+# venv\Scripts\activate   # Windows
+
+# Install dependencies using venv pip (important for Arch Linux)
+venv/bin/pip install -r requirements.txt
+
+# Run the tool
+./run.sh --repo /path/to/repo
+```
+
+**Note for Arch Linux users:** Always use `venv/bin/pip` instead of system `pip` to avoid PEP 668 errors.
 
 ## Usage
 
 ### Basic Commands
 
 ```bash
-# Full analysis with AI summaries
-python3 claude_history_analyzer.py
+# Watch current directory (must be git repo)
+./run.sh
 
-# Quick analysis without API calls (uses built-in summaries)
-python3 claude_history_analyzer.py --no-api
+# Watch specific repository
+./run.sh --repo ~/projects/my-app
 
-# Force refresh everything (when you need a fresh start)
-python3 claude_history_analyzer.py --force-refresh
+# Set custom refresh interval (seconds)
+./run.sh --repo ~/projects/my-app --refresh 2
 
-# Custom output location
-python3 claude_history_analyzer.py --output ~/my-history.json
+# Show help
+./run.sh --help
 ```
 
-### Hourly Auto-Updates (Set It and Forget It)
+### Configuration Options
 
-Because you *will* forget to run this manually:
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--repo PATH` | Git repository to monitor | Current directory |
+| `--refresh SEC` | File system polling interval | 1 second |
+| `--config FILE` | Custom configuration file | `~/.config/repoWatch/config.json` |
+| `--theme THEME` | Color theme (dark/light) | dark |
+| `--help` | Show help message | - |
 
-```bash
-# Edit crontab
-crontab -e
+## Architecture
 
-# Add this line (runs every hour at minute 0)
-0 * * * * /path/to/claude-central/run_analyzer.sh
+### System Overview
+
+### System Components
+
+```mermaid
+graph TD
+    A[repoWatch TUI] --> B[File Watcher]
+    A --> C[Git Tracker]
+    A --> D[File Clusterer]
+    A --> E[Animation Engine]
+
+    B --> F[watchdog/inotify]
+    C --> G[git status/log]
+    D --> H[Directory Grouping]
+    E --> I[ASCII Art Generator]
+
+    F --> J[Real-time Events]
+    G --> K[Commit History]
+    H --> L[Tree Structure]
+    I --> M[Animation Frames]
+
+    J --> N[File Changes]
+    K --> O[Session Commits]
+    L --> P[Compact Display]
+    M --> Q[Visual Feedback]
 ```
 
-Now your history updates itself while you're busy starting another project.
+### Data Flow
 
-### CLAUDE.md Suggestions
+1. **File Monitoring** → Watchdog detects file system changes
+2. **Git Integration** → Query git status and recent commits
+3. **Clustering** → Group files by parent directories
+4. **Display** → Update TUI panes with real-time data
+5. **Animation** → Trigger ASCII animations on file changes
 
-The analyzer can generate personalized instructions for your `~/.claude/CLAUDE.md` file based on:
-- **Your coding patterns** — Common requests, repeated tasks, tools you use
-- **Best practices** — Tailored to the types of projects you're building (iOS, web, ML, etc.)
+### File Clustering Algorithm
 
-```bash
-# Generate suggestions (requires API key)
-python3 claude_history_analyzer.py
+repoWatch organizes files by their parent directories to keep the display compact:
+**Clustering Rules:**
+- Group by common parent directory paths
+- Show counts in parentheses for collapsed groups
+- Expandable tree structure for navigation
+- Maximum depth of 3 levels to prevent visual clutter
 
-# Or regenerate suggestions from existing data
-python3 generate_suggestions.py
+## Usage Guide
 
-# Start server to enable one-click saving
-python3 server.py
+### Navigation
+
+- **Tab** / **Shift+Tab** — Switch between panes
+- **↑/↓** — Navigate within current pane
+- **Enter** — Expand/collapse directory groups
+- **F1** — Show help
+- **F2** — Open settings
+- **Ctrl+C** — Exit
+
+### Panes
+
+**Left Pane (Uncommitted Changes):**
+- Shows files modified but not committed
+- Green dot = staged, yellow = unstaged
+- Click to see diff or stage/unstage
+
+**Middle Pane (Session Commits):**
+- Files committed since you started watching
+- Shows commit messages and timestamps
+- Organized by directory clusters
+
+**Right Pane (Animation Display):**
+- Celebrates file changes with ASCII animations
+- Shows recent activity feed
+- Configurable animation styles
+
+## Technical Stack
+
+- **TUI Framework:** Textual (async Python TUI library)
+- **File Watching:** watchdog (cross-platform file monitoring)
+- **Git Integration:** GitPython (Python git operations)
+- **Animation:** Custom ASCII art engine
+- **Configuration:** JSON-based settings with hot reload
+
+## Project Structure
+
+```
+repoWatch/
+├── run.sh              # Controller script with CLI flags
+├── requirements.txt    # Python dependencies
+├── venv/               # Virtual environment (gitignored)
+├── repo_watch.py       # Main Textual TUI application
+├── file_watcher.py     # watchdog-based file monitoring
+├── git_tracker.py      # Git status and history tracking
+├── file_cluster.py     # Directory-based file grouping
+├── animations.py       # ASCII art animation system
+└── styles/
+    └── theme.py        # Color schemes and styling
 ```
 
-Then click the **Suggestions** tab in the UI to see your personalized recommendations. Each suggestion shows:
-- The instruction text (what gets added to CLAUDE.md)
-- A rationale explaining why it would help
-- An **"Add to CLAUDE.md"** button for instant saving
+## Styling Reference
 
-## How It Works
+The visual design is "plundered" from the original web-based Claude history analyzer:
 
-```
-~/.claude/
-├── history.jsonl          ← Your prompts across ALL projects
-└── projects/
-    ├── project-a/
-    │   └── session-123.jsonl   ← Full conversation history
-    ├── project-b/
-    │   └── session-456.jsonl
-    └── ...
-```
-
-The analyzer:
-1. **Scans** your entire Claude Code history
-2. **Groups** by project and date
-3. **Extracts** summaries (Claude already summarizes your sessions!)
-4. **Enhances** with AI-generated daily overviews
-5. **Links** git commits within session timeframes
-6. **Discovers** [Beads](https://github.com/steveyegge/beads) issues in your projects
-7. **Renders** everything in a searchable web UI
-
-### Live Monitor
-
-The Live Monitor provides real-time observability across all your active Claude sessions:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ 🔴 LIVE MONITOR                                    [Settings]   │
-├─────────────────────────────────────────────────────────────────┤
-│  Waiting: 1  │  Processing: 2  │  Ready: 1  │  Idle: 3          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│ ⚡ pet-tracker (Needs Approval · 25s ago)          [Jump]       │
-│   └─ Tool: Bash · Model: opus-4.5 · "Running npm install..."   │
-│                                                                 │
-│ 🔄 budgetapp (Processing · 3s ago)                 [Jump]       │
-│   └─ Tool: Edit · Model: opus-4.5 · Agent responding           │
-│                                                                 │
-│ ✅ ml-pipeline (Ready · 45s ago)                   [Jump]       │
-│   └─ Task complete · Waiting for next instruction              │
-│                                                                 │
-│ 💤 website (Idle · 12m ago)                        [Jump]       │
-│   └─ Last: Read · Session inactive                             │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+```css
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --border-color: #30363d;
+  --accent-blue: #58a6ff;
+  --accent-green: #3fb950;
+  --accent-purple: #a371f7;
+}
 ```
 
-**States:**
-- **Needs Approval** (orange) — Claude is waiting for tool approval (Bash, Write, etc.)
-- **Question** (orange) — Claude asked you a question
-- **Processing** (blue) — Claude is actively working
-- **Ready** (green) — Task complete, waiting for your next instruction
-- **Idle** (gray) — No activity for 5+ minutes
+**Design Principles:**
+- Dark terminal theme with high contrast
+- Consistent spacing and typography
+- Accent colors for interactive elements
+- Clean, minimal aesthetic focused on content
 
-**Alert Settings:**
-- Configurable waiting delay (default 20 seconds) — only alert after waiting this long
-- Sound notifications with volume control
-- Browser notifications (works in background tabs)
-- Visual indicators in the UI
+### Three-Pane Layout Diagram
 
-**Terminal Window Control (macOS only):**
-- Click "Jump" to instantly focus that project's terminal window
-- Works even with full-screen windows across different macOS Spaces
-- Shows all terminal windows grouped by project
-- *Note: Terminal control uses AppleScript and is currently macOS-only*
+```mermaid
+graph TD
+    A[repoWatch TUI] --> B[Left Pane<br/>Uncommitted Changes]
+    A --> C[Middle Pane<br/>Session Commits]
+    A --> D[Right Pane<br/>Animation Display]
 
-## Configuration
+    B --> E[File Clustering<br/>by Directory]
+    C --> F[Git Log<br/>--since session_start]
+    D --> G[ASCII Animations<br/>on File Changes]
 
-| Option | Description |
-|--------|-------------|
-| `--output`, `-o` | Where to save the JSON (default: `history_data.json`) |
-| `--force-refresh`, `-f` | Regenerate everything from scratch |
-| `--no-api` | Skip AI summaries (faster, free, slightly less pretty) |
+    E --> H[Tree Structure<br/>Expandable Groups]
+    F --> I[Commit Messages<br/>Timestamps]
+    G --> J[Activity Feed<br/>Celebration Animations]
+```
 
-## Privacy
+## Animation Examples
 
-- **100% Local** — Your history stays on your machine
-- **API calls only to Anthropic** — And only for generating summaries
-- **Secrets are gitignored** — `.env` and `history_data.json` never leave your machine
-- **No telemetry** — We respect the chaos. We don't track it.
+```
+🎉 FILE CHANGED!
+   (∩｀-´)⊃━☆ﾟ.*･｡
 
-## FAQ
+   ✨ /inject/flask/app.py modified
+   Last change: 2 seconds ago
 
-**Q: I have like 20 projects. Will this slow down?**
-A: The analyzer is incremental — it only processes new sessions. First run might take a minute, subsequent runs are fast.
+      \(*^^)/*
+```
 
-**Q: Some summaries look weird?**
-A: Sessions without built-in Claude summaries get a fallback. Use the API key for better results.
+```
+🚀 COMMIT DETECTED!
 
-**Q: Can I see what my agents did?**
-A: Yes! Agent sessions are captured just like regular sessions. You'll finally know if that background refactor actually finished.
+   [✓] /docs/README.md committed
+   "Update installation instructions"
 
-**Q: What's the Beads integration?**
-A: If you use [Beads](https://github.com/steveyegge/beads) (the AI-friendly issue tracker), this tool automatically discovers and displays all your Beads issues per project. Filter by open/closed, bug/feature/task, and see close reasons for resolved issues. Perfect for tracking what your agents have been working on.
+      (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧
+```
 
-**Q: How do CLAUDE.md suggestions work?**
-A: When you run the analyzer with an API key, Claude analyzes your coding patterns across all projects and generates personalized instructions for your CLAUDE.md file. Click "Suggestions" tab, then "Add to CLAUDE.md" to save any suggestion. Suggestions include coding style preferences, best practices for your project types, and patterns it noticed in your work.
+## Development Context
 
-**Q: What's the Live Monitor?**
-A: The Live tab shows real-time status of all your active Claude sessions. It detects when Claude needs approval, is asking a question, is processing, or has finished a task. You can configure alerts to sound after a session has been waiting for your input for a certain time (default 20 seconds).
+This is a complete **overhaul and jacking** of the original Claude Code history analyzer. The original tool was designed for tracking AI agent conversations across projects. This version transforms it into a **real-time git repository watcher** with terminal UI and ASCII animations.
 
-**Q: Why don't I get alerts immediately when Claude finishes?**
-A: By design! The "waiting delay" setting (default 20s) prevents alert spam. You only get notified if Claude has been waiting for approval or asking a question for longer than this threshold. When Claude completes a task and is just "Ready" for your next instruction, no alert fires — that's intentional.
+**What was plundered:**
+- Visual design system and color palette
+- Real-time monitoring concepts
+- Session-based tracking patterns
+- Clean, functional UI principles
 
-**Q: How does the "Jump to Terminal" feature work?**
-A: On macOS, clicking the Jump button uses AppleScript to focus the Terminal window for that project. It even works with full-screen windows across different Spaces — it uses the Terminal Window menu to switch, which bypasses the usual Space restrictions. This feature is currently macOS-only; on other platforms the Jump buttons won't appear.
+**What was rebuilt:**
+- File system monitoring instead of Claude sessions
+- Git integration instead of conversation history
+- TUI interface instead of web interface
+- ASCII animations instead of web notifications
 
-**Q: I accidentally mass-deleted my ~/.claude folder. Can this help?**
-A: No. This tool reads history, it doesn't create it. I'm sorry for your loss. 🕯️
+## Troubleshooting
 
-**Q: Is this official Anthropic software?**
-A: Nope! Just a tool built by a fellow vibe coder who kept losing track of their 15 concurrent projects.
+**Q: Tool shows no files?**
+A: Make sure you're in a git repository or specify `--repo /path/to/repo`
+
+**Q: Animations not showing?**
+A: Check terminal supports Unicode. Try `--theme ascii` for simpler animations.
+
+**Q: High CPU usage?**
+A: Increase `--refresh` interval or exclude large directories in config.
+
+**Q: Git commands failing?**
+A: Ensure git is installed and repository is accessible.
+
+## Future Enhancements
+
+- **Sound notifications** for file changes
+- **GitHub integration** for remote repository monitoring
+- **Custom animation themes** and styles
+- **Session persistence** across restarts
+- **Multi-repository monitoring**
+- **Commit message suggestions**
+- **File change diff previews**
 
 ## Contributing
 
-PRs welcome! Especially if you:
-- Have ideas for better multi-agent tracking
-- Want to add project tagging/categorization
-- Can make the UI even more ADHD-friendly
-- Just want to vibe
+This tool is built for **terminal lovers** and **git enthusiasts**. Contributions welcome:
+
+- Animation ideas and ASCII art
+- Performance optimizations
+- Cross-platform compatibility
+- New clustering algorithms
+- Additional git integrations
 
 ## License
 
-MIT — Fork it, modify it, ship it. Just keep vibing.
+MIT — Built for the terminal, by terminal users.
 
 ---
 
-*Built during a mass-coding session across 4 projects, documented by the very tool it describes, for coders who understand that "focus" is just one approach to productivity.*
+*Transformed from a Claude history tracker into a git repository watcher, because sometimes you need to see your code changes dance.*
 
-🧠 **Your external memory awaits.**
+🔍 **Your repository's pulse, in beautiful terminal form.**
 
-🤖 **Happy Vibe Coding!**
+⚡ **Happy watching!**
+
