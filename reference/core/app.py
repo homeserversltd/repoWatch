@@ -13,7 +13,6 @@ from typing import Optional, Any
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.binding import Binding
 
 from git_tracker.index import GitTracker, GitCommit
 from watcher.index import create_file_watcher, FileChangeEvent
@@ -28,39 +27,25 @@ class RepoWatchApp(App):
     CSS = get_textual_css()
 
     BINDINGS = [
-        Binding("tab", "focus_next", "Next Pane"),
-        Binding("shift+tab", "focus_previous", "Previous Pane"),
-        Binding("f1", "show_help", "Help"),
-        Binding("f2", "show_settings", "Settings"),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+c", "force_quit", "Force Quit", priority=True),
-        Binding("escape", "quit", "Quit", priority=True),
+        ("tab", "focus_next", "Next Pane"),
+        ("shift+tab", "focus_previous", "Previous Pane"),
+        ("f1", "show_help", "Help"),
+        ("f2", "show_settings", "Settings"),
+        ("q", "quit_app", "Quit"),
+        ("escape", "quit_app", "Quit"),
+        ("ctrl+c", "quit_app", "Quit"),
     ]
 
-    def action_quit(self):
+    def action_quit_app(self) -> None:
         """Quit the application gracefully."""
-        print("Quitting repoWatch gracefully...", flush=True)
-        # Ensure file watcher is stopped
-        if self.file_watcher:
+        # Stop file watcher if running
+        if hasattr(self, 'file_watcher') and self.file_watcher:
             try:
                 self.file_watcher.stop()
             except Exception:
                 pass
-        # Exit immediately - this is the proper Textual way
-        self.exit(result=None)
-
-    def action_force_quit(self):
-        """Force quit the application immediately."""
-        print("FORCE QUITTING repoWatch...", flush=True)
-        # Stop file watcher if possible
-        if self.file_watcher:
-            try:
-                self.file_watcher.stop()
-            except Exception:
-                pass
-        # Force immediate exit without any cleanup
-        import os
-        os._exit(0)
+        # Exit gracefully using Textual's built-in exit method
+        self.exit()
 
     def record_user_activity(self):
         """Record that user performed an action."""
@@ -275,8 +260,7 @@ Navigation:
 • F2: Show settings
 
 Quit Application:
-• q or ESC: Quit gracefully
-• Ctrl+C: Force quit immediately
+• q, ESC, or Ctrl+C: Quit the application
 
 Panes:
 • Left: Uncommitted file changes

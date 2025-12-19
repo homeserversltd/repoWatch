@@ -206,3 +206,5 @@ class KeybindFooter(Widget):
             Label("Ctrl+C: Force", classes="keybind"),
             id="keybind-footer"
         )
+
+

@@ -1,235 +1,284 @@
 #!/usr/bin/env python3
 """
-repoWatch Root Orchestrator
+repoWatch - Simple Textual TUI
 
-InfiniteIndex orchestrator for the repoWatch system.
-Loads configuration and executes child modules.
+A minimal Textual-based TUI that monitors git repository changes.
+Uses inotify for file watching, git for commit tracking, and animations for active changes.
 """
 
+import asyncio
 import os
 import sys
-import json
-import subprocess
-import signal
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+
+from textual.app import App, ComposeResult
+from textual.containers import Container, Horizontal, Vertical
+from textual.widgets import Static, Header
+
+import git
+from git import Repo
+from watchdog.observers import Observer
+
+try:
+    from .file_filter import FileChangeHandler
+except ImportError:
+    from file_filter import FileChangeHandler
 
 
-# Global flag for signal handling
-exit_requested = False
+class RepoWatchApp(App):
+    """Simple repoWatch Textual TUI."""
 
-def signal_handler(signum, frame):
-    """Handle SIGINT (Ctrl+C) gracefully."""
-    global exit_requested
-    print("\nReceived exit signal. Shutting down repoWatch...")
-    exit_requested = True
+    BINDINGS = [
+        ("q", "quit_app", "Quit the app"),
+        ("escape", "quit_app", "Quit the app"),
+        ("ctrl+c", "quit_app", "Quit the app"),
+    ]
 
-class RepoWatchOrchestrator:
-    """Root orchestrator for the repoWatch infiniteIndex system."""
+    CSS = """
+    #main-content {
+        height: 100%;
+    }
 
-    def __init__(self, module_path: Optional[Path] = None):
-        self.module_path = module_path or Path(__file__).parent
-        self.config_path = self.module_path / "index.json"
-        self.config = self._load_config()
-        self.paths = self._resolve_paths()
+    .pane {
+        width: 1fr;
+        height: 100%;
+        border: solid $primary;
+        margin: 1;
+        padding: 1;
+    }
 
-    def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from index.json."""
+    .pane-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    .file-list {
+        height: 100%;
+        overflow-y: auto;
+    }
+
+    #status-bar {
+        dock: bottom;
+        height: 1;
+        background: $primary;
+        color: $text;
+        text-align: center;
+    }
+    """
+
+    def __init__(self, repo_path: Path):
+        super().__init__()
+        self.repo_path = repo_path
+        self.title = f"repoWatch: {repo_path.name}"
+
+        # Initialize components
+        self.repo = Repo(repo_path)
+        self.observer = None
+        self.session_start = datetime.now()
+        self.active_changes = set()
+        self.animation_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.frame_index = 0
+
+    def compose(self) -> ComposeResult:
+        """Build the UI layout."""
+        yield Header()
+
+        with Container(id="main-content"):
+            with Horizontal():
+                # Left pane - Uncommitted changes
+                with Vertical(classes="pane"):
+                    yield Static("[bold]Uncommitted Changes[/bold]", classes="pane-title")
+                    yield Static("Loading...", id="uncommitted-files", classes="file-list")
+
+                # Middle pane - Committed files
+                with Vertical(classes="pane"):
+                    yield Static("[bold]Committed Files[/bold]", classes="pane-title")
+                    yield Static("Loading...", id="committed-files", classes="file-list")
+
+                # Right pane - Active changes
+                with Vertical(classes="pane"):
+                    yield Static("[bold]Active Changes[/bold]", classes="pane-title")
+                    yield Static("💤 Watching...", id="active-changes", classes="file-list")
+
+        yield Static("Ready", id="status-bar")
+
+    async def on_mount(self) -> None:
+        """Initialize when app starts."""
+        # Start file watching
+        await self.start_file_watching()
+
+        # Start animation loop
+        asyncio.create_task(self.animation_loop())
+
+        # Initial status update
+        await self.update_status()
+
+    async def start_file_watching(self):
+        """Start inotify file watching."""
+        self.observer = Observer()
+        handler = FileChangeHandler(self.on_file_change)
+        self.observer.schedule(handler, str(self.repo_path), recursive=True)
+        self.observer.start()
+
+    def on_file_change(self, event_type: str, file_path: str):
+        """Handle file change events."""
         try:
-            with open(self.config_path, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            print(f"Error: Configuration file not found: {self.config_path}")
-            sys.exit(1)
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON in configuration file: {e}")
-            sys.exit(1)
+            rel_path = Path(file_path).relative_to(self.repo_path)
+            self.active_changes.add(rel_path)
 
-    def _resolve_paths(self) -> Dict[str, str]:
-        """Resolve paths with environment variable expansion."""
-        paths_config = self.config.get("paths", {})
-        resolved = {}
-        for key, value in paths_config.items():
-            resolved[key] = self._expandvars(str(value))
-        return resolved
+            # Update status
+            asyncio.create_task(self.update_status())
+        except ValueError:
+            pass  # File outside repo
 
-    def _expandvars(self, path: str) -> str:
-        """Custom variable expansion that handles ${VAR:-default} syntax."""
-        import re
+    async def animation_loop(self):
+        """Run animation loop."""
+        while True:
+            if self.active_changes:
+                self.frame_index += 1
+                self.update_active_changes()
+            await asyncio.sleep(0.1)
 
-        # Handle ${VAR:-default} syntax
-        def replace_var(match):
-            var_expr = match.group(1)
-            if ':-' in var_expr:
-                var_name, default = var_expr.split(':-', 1)
-                return os.environ.get(var_name, default)
-            else:
-                return os.environ.get(var_expr, match.group(0))
+    def update_active_changes(self):
+        """Update the active changes pane."""
+        changes_widget = self.query_one("#active-changes", Static)
 
-        # Replace ${VAR} and ${VAR:-default} patterns
-        expanded = re.sub(r'\$\{([^}]+)\}', replace_var, path)
-
-        # Also handle $VAR syntax for compatibility
-        expanded = os.path.expandvars(expanded)
-
-        return expanded
-
-    def _check_dependencies(self) -> bool:
-        """Check if required dependencies are installed."""
-        dependencies = self.config.get("config", {}).get("dependencies", {})
-
-        missing_deps = []
-        for dep, version in dependencies.items():
-            try:
-                # Handle module name conversion (e.g., gitpython -> git)
-                module_name = dep.replace("-", "_")
-                if dep == "gitpython":
-                    module_name = "git"
-                __import__(module_name)
-            except ImportError:
-                missing_deps.append(f"{dep}{version}")
-
-        if missing_deps:
-            print("Missing dependencies. Installing...")
-            try:
-                for dep_spec in missing_deps:
-                    print(f"Installing {dep_spec}...")
-                    subprocess.check_call([
-                        sys.executable, "-m", "pip", "install",
-                        "--break-system-packages", dep_spec
-                    ])
-                print("Dependencies installed successfully.")
-                return True
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to install dependencies: {e}")
-                return False
-
-        return True
-
-    def _execute_child(self, child_path: Path, child_name: str) -> bool:
-        """Execute a child module."""
-        global exit_requested
-
-        # Check if exit was requested before starting child
-        if exit_requested:
-            print(f"Exit requested, skipping child module: {child_name}")
-            return False
-
-        child_index_py = child_path / "index.py"
-
-        if not child_index_py.exists():
-            print(f"Warning: Child module '{child_name}' not found at {child_index_py}")
-            return False
-
-        try:
-            print(f"Executing child module: {child_name}")
-            # Temporarily modify sys.path to prioritize our local modules
-            original_path = sys.path[:]
-            # Insert the child path at the beginning, but keep all other paths
-            sys.path.insert(0, str(child_path))
-            try:
-                import index as child_module
-                # Call main function if it exists, otherwise just import
-                if hasattr(child_module, 'main'):
-                    result = child_module.main(child_path, self.config)
-                    return result is not False
-                else:
-                    return True
-            finally:
-                # Remove only our inserted path
-                if sys.path[0] == str(child_path):
-                    sys.path.pop(0)
-                # Restore original order for any other modifications
-                sys.path = original_path
-
-        except SystemExit:
-            # If a module calls sys.exit(), let it exit the entire process
-            raise
-        except Exception as e:
-            print(f"Error executing child module '{child_name}': {e}")
-            execution_config = self.config.get("execution", {})
-            if not execution_config.get("continue_on_error", True):
-                return False
-            return True
-
-    def execute(self) -> bool:
-        """Execute all child modules according to configuration."""
-        global exit_requested
-
-        print("repoWatch - Starting infiniteIndex orchestrator")
-
-        # Check dependencies first
-        if not self._check_dependencies():
-            print("Failed to satisfy dependencies")
-            return False
-
-        # Get execution configuration
-        execution_config = self.config.get("execution", {})
-        children = self.config.get("children", [])
-
-        success = True
-
-        for child_name in children:
-            # Check if exit was requested between children
-            if exit_requested:
-                print("Exit requested during execution")
-                success = False
-                break
-
-            child_path = self.module_path / child_name
-
-            if not child_path.exists():
-                print(f"Warning: Child directory '{child_name}' not found")
-                if not execution_config.get("continue_on_error", True):
-                    success = False
-                    break
-                continue
-
-            child_success = self._execute_child(child_path, child_name)
-            if not child_success and not execution_config.get("continue_on_error", True):
-                success = False
-                break
-
-        if success and not exit_requested:
-            print("repoWatch orchestrator completed successfully")
+        if self.active_changes:
+            spinner = self.animation_frames[self.frame_index % len(self.animation_frames)]
+            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes)
+            changes_widget.update(f"Active changes:\n{file_list}")
         else:
-            print("repoWatch orchestrator completed with errors or was interrupted")
+            changes_widget.update("💤 Watching for changes...")
 
-        return success and not exit_requested
+    def get_uncommitted_files(self):
+        """Get list of uncommitted changed files."""
+        try:
+            staged = [item.a_path for item in self.repo.index.diff('HEAD')]
+            unstaged = [item.a_path for item in self.repo.index.diff(None)]
+            untracked = [item for item in self.repo.untracked_files]
+            return list(set(staged + unstaged + untracked))
+        except:
+            return []
 
-    def get_config(self) -> Dict[str, Any]:
-        """Get the loaded configuration."""
-        return self.config
+    def get_recent_commits(self):
+        """Get files from recent commits."""
+        try:
+            commits = list(self.repo.iter_commits(
+                since=self.session_start,
+                max_count=10
+            ))
 
-    def get_paths(self) -> Dict[str, str]:
-        """Get the resolved paths."""
-        return self.paths
+            committed_files = []
+            for commit in commits:
+                files = commit.stats.files.keys()
+                committed_files.extend(files)
+
+            return list(set(committed_files))
+        except:
+            return []
+
+    async def update_status(self):
+        """Update all panes."""
+        # Update uncommitted files
+        uncommitted = self.get_uncommitted_files()
+        uncommitted_widget = self.query_one("#uncommitted-files", Static)
+
+        if uncommitted:
+            file_list = "\n".join(f"📄 {file}" for file in uncommitted)
+            uncommitted_widget.update(file_list)
+        else:
+            uncommitted_widget.update("No uncommitted changes")
+
+        # Update committed files
+        committed = self.get_recent_commits()
+        committed_widget = self.query_one("#committed-files", Static)
+
+        if committed:
+            file_list = "\n".join(f"✅ {file}" for file in committed)
+            committed_widget.update(file_list)
+        else:
+            committed_widget.update("No recent commits")
+
+        # Update status bar
+        status_widget = self.query_one("#status-bar", Static)
+        duration = datetime.now() - self.session_start
+        minutes = int(duration.total_seconds() / 60)
+        status_widget.update(f"Session: {minutes}m | Uncommitted: {len(uncommitted)} | Committed: {len(committed)}")
+
+    def action_quit_app(self) -> None:
+        """Quit the application."""
+        self.exit()
+
+    async def on_unmount(self):
+        """Clean up resources."""
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
 
 
-def main(module_path: Optional[Path] = None, parent_config: Optional[Dict[str, Any]] = None) -> bool:
-    """Entry point for the repoWatch orchestrator."""
-    global exit_requested
+def check_dependencies():
+    """Check and install required dependencies."""
+    required_deps = ["textual", "watchdog", "gitpython"]
 
-    # Set up signal handler for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
+    missing_deps = []
+    for dep in required_deps:
+        try:
+            if dep == "gitpython":
+                import git
+            else:
+                __import__(dep)
+        except ImportError:
+            missing_deps.append(dep)
 
-    try:
-        orchestrator = RepoWatchOrchestrator(module_path)
-        return orchestrator.execute()
-    except SystemExit:
-        # If any module calls sys.exit(), let it exit the entire process
-        raise
-    except KeyboardInterrupt:
-        print("\nrepoWatch orchestrator interrupted by user")
+    if missing_deps:
+        print(f"Installing missing dependencies: {', '.join(missing_deps)}")
+        try:
+            import subprocess
+            for dep in missing_deps:
+                print(f"Installing {dep}...")
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install",
+                    "--break-system-packages", dep
+                ])
+            print("Dependencies installed successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to install dependencies: {e}")
+            return False
+
+    return True
+
+
+def main(module_path: Path = None, parent_config: dict = None):
+    """Main entry point."""
+    # Check dependencies
+    if not check_dependencies():
+        print("Failed to install dependencies")
         return False
-    except Exception as e:
-        print(f"repoWatch orchestrator error: {e}")
-        import traceback
-        traceback.print_exc()
+
+    # Get repo path from environment or use current directory
+    repo_path_str = os.environ.get('REPO_WATCH_REPO_PATH', '.')
+    repo_path = Path(repo_path_str).resolve()
+
+    if not repo_path.exists():
+        print(f"Error: Repository path does not exist: {repo_path}")
         return False
+
+    if not (repo_path / '.git').exists():
+        print(f"Error: Not a git repository: {repo_path}")
+        return False
+
+    print(f"Starting repoWatch for repository: {repo_path}")
+
+    # Create and run the app
+    app = RepoWatchApp(repo_path)
+    app.run()
+
+    return True
 
 
 if __name__ == "__main__":
-    # When run directly, execute the orchestrator
+    # When run directly, execute the app
     success = main()
     sys.exit(0 if success else 1)

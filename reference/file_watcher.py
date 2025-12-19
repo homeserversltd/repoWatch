@@ -217,3 +217,5 @@ def create_file_watcher(watch_path: Path, callback: Callable[[FileChangeEvent], 
     else:
         print("Using mock file watcher (watchdog not available)")
         return MockFileWatcher(watch_path, callback, ignore_patterns)
+
+

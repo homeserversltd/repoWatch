@@ -179,3 +179,5 @@ class AnimationEngine:
             "💎 Perfect!",
         ]
         return random.choice(celebrations)
+
+

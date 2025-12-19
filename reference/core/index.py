@@ -27,14 +27,10 @@ def main(module_path: Path, parent_config: Optional[Dict[str, Any]] = None) -> b
         refresh_interval = float(refresh_interval_str)
 
         print(f"Starting repoWatch TUI for repository: {repo_path}")
-        print("Press 'q' to quit gracefully, Ctrl+C to force quit immediately")
+        print("Press 'q', 'ESC', or 'Ctrl+C' to quit")
 
-        # Run the application
-        result = orchestrator.run_app(repo_path, refresh_interval)
-
-        # If TUI exited (either via quit or other means), exit the entire process
-        print("TUI closed, exiting process...")
-        sys.exit(0)
+        # Run the application - Textual handles exit internally
+        orchestrator.run_app(repo_path, refresh_interval)
 
     except Exception as e:
         print(f"Core module error: {e}")
