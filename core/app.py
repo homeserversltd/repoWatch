@@ -19,7 +19,7 @@ from git_tracker.index import GitTracker, GitCommit
 from watcher.index import create_file_watcher, FileChangeEvent
 from display.index import FileClusterer, AnimationEngine
 from themes.index import get_textual_css
-from .widgets import StatusBar, FilePane, AnimationPane, KeybindFooter
+import widgets
 
 
 class RepoWatchApp(App):
@@ -96,10 +96,10 @@ class RepoWatchApp(App):
         self.auto_quit_timeout = 300  # 5 minutes of inactivity
 
         # UI components
-        self.status_bar: Optional[StatusBar] = None
-        self.uncommitted_pane: Optional[FilePane] = None
-        self.committed_pane: Optional[FilePane] = None
-        self.animation_pane: Optional[AnimationPane] = None
+        self.status_bar: Optional[widgets.StatusBar] = None
+        self.uncommitted_pane: Optional[widgets.FilePane] = None
+        self.committed_pane: Optional[widgets.FilePane] = None
+        self.animation_pane: Optional[widgets.AnimationPane] = None
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
@@ -113,20 +113,20 @@ class RepoWatchApp(App):
                 with Horizontal():
                     # Left pane - Uncommitted changes
                     with Vertical(id="left-pane"):
-                        yield FilePane("Uncommitted Changes", "uncommitted")
+                        yield widgets.FilePane("Uncommitted Changes", "uncommitted")
 
                     # Middle pane - Committed changes
                     with Vertical(id="middle-pane"):
-                        yield FilePane("Committed (Session)", "committed")
+                        yield widgets.FilePane("Committed (Session)", "committed")
 
                     # Right pane - Animation display
                     with Vertical(id="right-pane"):
-                        yield AnimationPane()
+                        yield widgets.AnimationPane()
 
-            yield StatusBar()
+            yield widgets.StatusBar()
 
         # Footer with explicit docking
-        yield KeybindFooter()
+        yield widgets.KeybindFooter()
 
     async def on_mount(self) -> None:
         """Initialize the application."""
@@ -144,10 +144,10 @@ class RepoWatchApp(App):
 
             # Get UI components - wait a moment for widgets to mount
             await asyncio.sleep(0.1)
-            self.status_bar = self.query_one(StatusBar)
-            self.uncommitted_pane = self.query_one("#uncommitted", FilePane)
-            self.committed_pane = self.query_one("#committed", FilePane)
-            self.animation_pane = self.query_one("#animation-pane", AnimationPane)
+            self.status_bar = self.query_one(widgets.StatusBar)
+            self.uncommitted_pane = self.query_one("#uncommitted", widgets.FilePane)
+            self.committed_pane = self.query_one("#committed", widgets.FilePane)
+            self.animation_pane = self.query_one("#animation-pane", widgets.AnimationPane)
 
             # Ensure app can receive keyboard focus
             self.screen.can_focus = True

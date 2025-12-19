@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from .app import RepoWatchApp
+import app as app_module
 
 
 class CoreOrchestrator:
@@ -59,7 +59,7 @@ class CoreOrchestrator:
 
     def run_app(self, repo_path: Path, refresh_interval: float = 1.0):
         """Run the main repoWatch TUI application."""
-        app = RepoWatchApp(repo_path, refresh_interval)
+        app = app_module.RepoWatchApp(repo_path, refresh_interval)
 
         # Set up signal handler that works with Textual
         # Textual's event loop should allow signals to propagate

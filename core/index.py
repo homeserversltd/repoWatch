@@ -9,18 +9,14 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-# Add parent directory to ensure we import our modules, not system ones
-_repo_watch_root = Path(__file__).parent.parent
-if str(_repo_watch_root) not in sys.path:
-    sys.path.insert(0, str(_repo_watch_root))
-
-from .orchestrator import CoreOrchestrator
+# Import orchestrator directly since it's in the same directory
+import orchestrator as core_orchestrator
 
 
 def main(module_path: Path, parent_config: Optional[Dict[str, Any]] = None) -> bool:
     """Entry point for the core module."""
     try:
-        orchestrator = CoreOrchestrator(module_path, parent_config)
+        orchestrator = core_orchestrator.CoreOrchestrator(module_path, parent_config)
 
         # Get and expand settings from parent config
         paths_config = parent_config.get("paths", {})
