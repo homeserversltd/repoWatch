@@ -11,7 +11,17 @@ cd "$SCRIPT_DIR"
 # Check if dependencies are installed system-wide
 if ! python3 -c "import textual" 2>/dev/null; then
     echo "Installing dependencies system-wide..."
-    pip install --break-system-packages -r requirements.txt
+    # Install from index.json configuration
+    python3 -c "
+import json
+with open('index.json', 'r') as f:
+    config = json.load(f)
+deps = config.get('config', {}).get('dependencies', {})
+for dep, version in deps.items():
+    print(f'Installing {dep}{version}...')
+    import subprocess
+    subprocess.run(['pip', 'install', '--break-system-packages', f'{dep}{version}'], check=True)
+"
 fi
 
 # Parse command line arguments
@@ -71,13 +81,16 @@ if [ ! -d "$REPO_PATH/.git" ]; then
     exit 1
 fi
 
+# Set script directory for the orchestrator
+export REPO_WATCH_SCRIPT_DIR="$SCRIPT_DIR"
+
 # Export environment variables for the Python app
 export REPO_WATCH_REPO_PATH="$REPO_PATH"
 export REPO_WATCH_REFRESH_INTERVAL="$REFRESH_INTERVAL"
 export REPO_WATCH_THEME="$THEME"
 export REPO_WATCH_CONFIG_FILE="$CONFIG_FILE"
 
-# Launch the TUI application
+# Launch the infiniteIndex orchestrator
 echo "Starting repoWatch..."
 echo "Repository: $REPO_PATH"
 echo "Theme: $THEME"
@@ -85,4 +98,4 @@ echo "Refresh: ${REFRESH_INTERVAL}s"
 echo "Press Ctrl+C to exit"
 echo ""
 
-python3 repo_watch.py
+python3 index.py

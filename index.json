@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "repoWatch",
+    "description": "Real-time Git Repository Watcher TUI with beautiful ASCII animations"
+  },
+  "paths": {
+    "repo_path": "${REPO_WATCH_REPO_PATH:-.}",
+    "refresh_interval": "${REPO_WATCH_REFRESH_INTERVAL:-1.0}",
+    "theme": "${REPO_WATCH_THEME:-dark}",
+    "config_file": "${REPO_WATCH_CONFIG_FILE:-}",
+    "script_dir": ".",
+    "venv_dir": "./venv",
+    "requirements_file": "./requirements.txt"
+  },
+  "children": [
+    "core",
+    "git_tracker",
+    "watcher",
+    "display",
+    "themes"
+  ],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "dependencies": {
+      "textual": ">=0.50.0",
+      "watchdog": ">=4.0.0",
+      "gitpython": ">=3.1.0",
+      "rich": ">=13.0.0",
+      "click": ">=8.0.0",
+      "pyyaml": ">=6.0.0"
+    },
+    "default_settings": {
+      "repo_path": ".",
+      "refresh_interval": 1.0,
+      "theme": "dark",
+      "ignore_patterns": [".git", "__pycache__", ".DS_Store"]
+    },
+    "ui": {
+      "animation_fps": 10,
+      "status_update_interval": 60,
+      "max_commits_display": 10
+    }
+  }
+}

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-repoWatch - Real-time Git Repository Watcher TUI
+repoWatch Core Module
 
-A terminal-based application for monitoring git repository changes
-with beautiful ASCII animations and intelligent file clustering.
+Main TUI application and user interface components.
 """
 
 import os
@@ -12,6 +11,11 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import json
+import sys
+
+# Add parent directory to path to import sibling modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -20,12 +24,19 @@ from textual.widget import Widget
 from textual.binding import Binding
 from textual import events
 
-# Import our modules
-from styles.theme import get_textual_css
-from file_watcher import create_file_watcher, FileChangeEvent
-from git_tracker import GitTracker, GitFileStatus, GitCommit
-from file_cluster import FileClusterer, cluster_files_for_display
-from animations import AnimationEngine
+# Import our modules with explicit relative paths
+import sys
+from pathlib import Path
+
+# Add parent directory to ensure we import our modules, not system ones
+_repo_watch_root = Path(__file__).parent.parent
+if str(_repo_watch_root) not in sys.path:
+    sys.path.insert(0, str(_repo_watch_root))
+
+from git_tracker.index import GitTracker, GitFileStatus, GitCommit
+from watcher.index import create_file_watcher, FileChangeEvent
+from display.index import FileClusterer, cluster_files_for_display, AnimationEngine
+from themes.index import get_textual_css
 
 
 class StatusBar(Widget):
@@ -382,21 +393,76 @@ File Watcher: {'Active' if self.file_watcher and self.file_watcher.is_active() e
             self.file_watcher.stop()
 
 
-def main():
-    """Main entry point."""
-    import sys
+class CoreOrchestrator:
+    """Orchestrator for the core TUI module."""
 
-    # Get environment variables set by run.sh
-    repo_path = os.environ.get('REPO_WATCH_REPO_PATH', '.')
-    refresh_interval = float(os.environ.get('REPO_WATCH_REFRESH_INTERVAL', '1.0'))
+    def __init__(self, module_path: Path, parent_config: Optional[Dict[str, Any]] = None):
+        self.module_path = module_path
+        self.parent_config = parent_config or {}
+        self.config_path = module_path / "index.json"
+        self.config = self._load_config()
 
-    # Convert to Path
-    repo_path = Path(repo_path).resolve()
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from index.json."""
+        try:
+            with open(self.config_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"Warning: Core config not found: {self.config_path}")
+            return {}
+        except json.JSONDecodeError as e:
+            print(f"Warning: Invalid core config JSON: {e}")
+            return {}
 
-    # Create and run app
-    app = RepoWatchApp(repo_path, refresh_interval)
-    app.run()
+    def _expandvars(self, path: str) -> str:
+        """Custom variable expansion that handles ${VAR:-default} syntax."""
+        import re
+
+        # Handle ${VAR:-default} syntax
+        def replace_var(match):
+            var_expr = match.group(1)
+            if ':-' in var_expr:
+                var_name, default = var_expr.split(':-', 1)
+                return os.environ.get(var_name, default)
+            else:
+                return os.environ.get(var_expr, match.group(0))
+
+        # Replace ${VAR} and ${VAR:-default} patterns
+        expanded = re.sub(r'\$\{([^}]+)\}', replace_var, path)
+
+        # Also handle $VAR syntax for compatibility
+        expanded = os.path.expandvars(expanded)
+
+        return expanded
+
+    def run_app(self, repo_path: Path, refresh_interval: float = 1.0):
+        """Run the main repoWatch TUI application."""
+        app = RepoWatchApp(repo_path, refresh_interval)
+        app.run()
 
 
-if __name__ == "__main__":
-    main()
+def main(module_path: Path, parent_config: Optional[Dict[str, Any]] = None) -> bool:
+    """Entry point for the core module."""
+    try:
+        orchestrator = CoreOrchestrator(module_path, parent_config)
+
+        # Get and expand settings from parent config
+        paths_config = parent_config.get("paths", {})
+        repo_path_str = orchestrator._expandvars(paths_config.get("repo_path", "."))
+        refresh_interval_str = orchestrator._expandvars(paths_config.get("refresh_interval", "1.0"))
+
+        repo_path = Path(repo_path_str).resolve()
+        refresh_interval = float(refresh_interval_str)
+
+        print(f"Starting repoWatch TUI for repository: {repo_path}")
+
+        # Run the application
+        orchestrator.run_app(repo_path, refresh_interval)
+
+        return True
+
+    except Exception as e:
+        print(f"Core module error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False

@@ -1,0 +1,69 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "repoWatch Themes",
+    "description": "Terminal UI theming and color scheme management"
+  },
+  "paths": {},
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "color_palette": {
+      "bg_primary": "#0d1117",
+      "bg_secondary": "#161b22",
+      "bg_tertiary": "#21262d",
+      "text_primary": "#e6edf3",
+      "text_secondary": "#8b949e",
+      "text_muted": "#6e7681",
+      "border_color": "#30363d",
+      "accent_blue": "#58a6ff",
+      "accent_green": "#3fb950",
+      "accent_purple": "#a371f7",
+      "accent_orange": "#d29922"
+    },
+    "textual_styles": {
+      "screen_background": "bg_primary",
+      "header_background": "bg_secondary",
+      "status_bar_background": "bg_tertiary",
+      "pane_background": "bg_secondary",
+      "pane_border": "border_color",
+      "text_color": "text_primary",
+      "secondary_text": "text_secondary",
+      "accent_color": "accent_blue",
+      "success_color": "accent_green",
+      "warning_color": "accent_orange",
+      "error_color": "accent_purple"
+    },
+    "theme_variants": {
+      "dark": {
+        "name": "Dark Theme",
+        "description": "GitHub Dark theme inspired colors"
+      },
+      "light": {
+        "name": "Light Theme",
+        "description": "Light color scheme (future implementation)"
+      }
+    },
+    "component_styles": {
+      "animation_area": {
+        "background": "bg_primary",
+        "text_color": "accent_blue"
+      },
+      "file_status": {
+        "modified": "accent_orange",
+        "staged": "accent_green",
+        "untracked": "accent_purple",
+        "committed": "text_secondary"
+      },
+      "cluster_styles": {
+        "group_color": "text_secondary",
+        "count_color": "accent_blue",
+        "file_prefix": "text_primary"
+      }
+    }
+  }
+}

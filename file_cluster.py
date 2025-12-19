@@ -96,9 +96,12 @@ class FileClusterer:
         return self._group_clusters(clusters)
 
     def _get_display_name(self, dir_path: Path) -> str:
-        """Get display name for a directory path."""
+        """Get display name for a directory path.
+        
+        Never shows the repo root - returns empty string for root-level files.
+        """
         if str(dir_path) == '' or str(dir_path) == '.':
-            return 'root'
+            return ''  # Root-level files - no parent path to show
 
         parts = dir_path.parts
         if len(parts) <= self.max_depth:
@@ -110,9 +113,9 @@ class FileClusterer:
     def _group_clusters(self, clusters: List[FileCluster]) -> List[ClusterGroup]:
         """
         Group clusters under common parent directories.
+        
+        Never groups by repo root - only meaningful directory levels.
         """
-        # For now, return all clusters as a single group
-        # In the future, this could group by higher-level directories
         if not clusters:
             return []
 
@@ -120,11 +123,12 @@ class FileClusterer:
         sorted_clusters = sorted(clusters, key=lambda c: c.count, reverse=True)
 
         # Create a single group for all clusters
+        # Note: parent_path is intentionally empty - we never show repo root
         group = ClusterGroup(
             parent_path="",
             clusters=sorted_clusters,
             total_files=sum(c.count for c in sorted_clusters),
-            display_name="All Changes"
+            display_name=""  # Empty - no root-level grouping name
         )
 
         return [group]
@@ -197,6 +201,11 @@ class FileClusterer:
 
             files_display = "\n".join(file_lines)
 
+        # For root-level files (no parent path), show files directly without path prefix
+        if not cluster.display_name:
+            return f"({cluster.count} files)\n{files_display}"
+        
+        # For files in directories, show directory path
         return f"{cluster.display_name}/... ({cluster.count} files)\n{files_display}"
 
     def format_group_display(self, group: ClusterGroup) -> str:

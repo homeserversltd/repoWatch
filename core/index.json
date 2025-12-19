@@ -1,0 +1,39 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "repoWatch Core",
+    "description": "Main TUI application and user interface components"
+  },
+  "paths": {
+    "git_module": "../git",
+    "watcher_module": "../watcher",
+    "display_module": "../display",
+    "themes_module": "../themes"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "ui_settings": {
+      "animation_fps": 10,
+      "status_update_interval": 60,
+      "max_commits_display": 10,
+      "default_pane_focus": "uncommitted"
+    },
+    "key_bindings": {
+      "quit": ["q", "ctrl+c"],
+      "next_pane": ["tab"],
+      "previous_pane": ["shift+tab"],
+      "help": ["f1"],
+      "settings": ["f2"]
+    },
+    "pane_layout": {
+      "left_pane": "uncommitted_changes",
+      "middle_pane": "committed_session",
+      "right_pane": "animation_display"
+    }
+  }
+}
