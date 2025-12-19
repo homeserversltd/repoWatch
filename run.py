@@ -18,7 +18,8 @@ def main():
 
     print(f"repoWatch - Starting simple Textual TUI")
     print(f"Watching repository: {repo_path}")
-    print("Press Ctrl+C to exit")
+    print("Use Tab/Shift+Tab to navigate panes. Press Q or Ctrl+C to exit.")
+    print("Keybinds are also displayed in the footer at the bottom of the TUI.")
 
     # Import and run the app
     sys.path.insert(0, str(Path(__file__).parent))

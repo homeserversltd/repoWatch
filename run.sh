@@ -36,7 +36,8 @@ export REPO_WATCH_REPO_PATH="$REPO_PATH"
 # Run the repoWatch TUI
 echo "repoWatch - Starting Textual TUI"
 echo "Watching repository: $REPO_PATH"
-echo "Press Ctrl+C to exit"
+echo "Use Tab/Shift+Tab to navigate panes. Press Q or Ctrl+C to exit."
+echo "Keybinds are displayed in the footer at the bottom of the TUI."
 echo ""
 
 python3 run.py

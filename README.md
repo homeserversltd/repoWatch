@@ -48,7 +48,7 @@ Shows files from recent commits in this session:
 
 ### Right: Active Changes
 Shows files currently being modified:
-- ⠋ filename (animated spinner + filename)
+- ⠋ filename (animated spinner + filename, lasts 1 second per file)
 - 💤 Watching... (when no active changes)
 
 ### Bottom: Status Bar
@@ -56,6 +56,11 @@ Shows session statistics:
 - Session duration
 - Count of uncommitted files
 - Count of committed files
+
+### Footer: Keybind Reference
+Shows available keyboard shortcuts:
+- Tab/Shift+Tab: Navigate between panes
+- Q/Escape/Ctrl+C: Quit the application
 
 ## Controls
 

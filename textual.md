@@ -309,7 +309,7 @@ class RepoWatchApp(App):
 
 ## Animation System
 
-Simple animation for active changes:
+Animation for active changes that lasts 1 second per file:
 
 ```python
 class RepoWatchApp(App):
@@ -318,14 +318,14 @@ class RepoWatchApp(App):
     def __init__(self, repo_path: Path):
         super().__init__()
         self.repo_path = repo_path
-        self.active_changes = set()
+        self.active_changes = {}  # file_path -> timestamp
         self.animation_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         self.frame_index = 0
 
     def on_file_change(self, event_type: str, file_path: str):
         """Handle file change events."""
         rel_path = Path(file_path).relative_to(self.repo_path)
-        self.active_changes.add(rel_path)
+        self.active_changes[rel_path] = datetime.now()
 
         # Update active changes display
         self.update_active_changes()
@@ -336,7 +336,7 @@ class RepoWatchApp(App):
 
         if self.active_changes:
             spinner = self.animation_frames[self.frame_index % len(self.animation_frames)]
-            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes)
+            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes.keys())
             changes_widget.update(f"Active changes:\n{file_list}")
         else:
             changes_widget.update("💤 Watching for changes...")
@@ -344,9 +344,23 @@ class RepoWatchApp(App):
     async def animation_loop(self):
         """Run animation loop."""
         while True:
+            current_time = datetime.now()
+
+            # Remove files that have been active for more than 1 second
+            expired_files = [
+                file_path for file_path, timestamp
+                in self.active_changes.items()
+                if (current_time - timestamp).total_seconds() > 1.0
+            ]
+            for expired_file in expired_files:
+                del self.active_changes[expired_file]
+
             if self.active_changes:
                 self.frame_index += 1
                 self.update_active_changes()
+            elif expired_files:  # Update display when files expire
+                self.update_active_changes()
+
             await asyncio.sleep(0.1)  # 10 FPS
 ```
 
@@ -433,7 +447,7 @@ class RepoWatchApp(App):
         self.repo = Repo(repo_path)
         self.observer = None
         self.session_start = datetime.now()
-        self.active_changes = set()
+        self.active_changes = {}  # file_path -> timestamp
         self.animation_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         self.frame_index = 0
 
@@ -482,7 +496,7 @@ class RepoWatchApp(App):
         """Handle file change events."""
         try:
             rel_path = Path(file_path).relative_to(self.repo_path)
-            self.active_changes.add(rel_path)
+            self.active_changes[rel_path] = datetime.now()
 
             # Update status
             asyncio.create_task(self.update_status())
@@ -492,9 +506,23 @@ class RepoWatchApp(App):
     async def animation_loop(self):
         """Run animation loop."""
         while True:
+            current_time = datetime.now()
+
+            # Remove files that have been active for more than 1 second
+            expired_files = [
+                file_path for file_path, timestamp
+                in self.active_changes.items()
+                if (current_time - timestamp).total_seconds() > 1.0
+            ]
+            for expired_file in expired_files:
+                del self.active_changes[expired_file]
+
             if self.active_changes:
                 self.frame_index += 1
                 self.update_active_changes()
+            elif expired_files:  # Update display when files expire
+                self.update_active_changes()
+
             await asyncio.sleep(0.1)
 
     def update_active_changes(self):
@@ -503,7 +531,7 @@ class RepoWatchApp(App):
 
         if self.active_changes:
             spinner = self.animation_frames[self.frame_index % len(self.animation_frames)]
-            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes)
+            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes.keys())
             changes_widget.update(f"Active changes:\n{file_list}")
         else:
             changes_widget.update("💤 Watching for changes...")
@@ -593,6 +621,7 @@ if __name__ == "__main__":
    - **Middle pane:** Files committed since you started watching
    - **Right pane:** Active file changes with spinning animations
    - **Bottom:** Status bar with session info
+   - **Footer:** Keybind reference (Tab/Shift+Tab navigation, Q/Ctrl+C quit)
 
 ## Key Textual Concepts Used
 

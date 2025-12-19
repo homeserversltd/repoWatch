@@ -14,7 +14,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static, Header
+from textual.widgets import Static, Header, Footer
 
 import git
 from git import Repo
@@ -36,8 +36,13 @@ class RepoWatchApp(App):
     ]
 
     CSS = """
-    #main-content {
+    #main-layout {
+        layout: vertical;
         height: 100%;
+    }
+
+    #main-content {
+        height: 1fr;
     }
 
     .pane {
@@ -66,6 +71,15 @@ class RepoWatchApp(App):
         color: $text;
         text-align: center;
     }
+
+    Footer {
+        dock: bottom;
+        height: 1;
+        background: $surface;
+        color: $text-muted;
+        text-align: center;
+        border-top: solid $primary;
+    }
     """
 
     def __init__(self, repo_path: Path):
@@ -77,7 +91,7 @@ class RepoWatchApp(App):
         self.repo = Repo(repo_path)
         self.observer = None
         self.session_start = datetime.now()
-        self.active_changes = set()
+        self.active_changes = {}  # file_path -> timestamp
         self.animation_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         self.frame_index = 0
 
@@ -85,24 +99,27 @@ class RepoWatchApp(App):
         """Build the UI layout."""
         yield Header()
 
-        with Container(id="main-content"):
-            with Horizontal():
-                # Left pane - Uncommitted changes
-                with Vertical(classes="pane"):
-                    yield Static("[bold]Uncommitted Changes[/bold]", classes="pane-title")
-                    yield Static("Loading...", id="uncommitted-files", classes="file-list")
+        with Vertical(id="main-layout"):
+            with Container(id="main-content"):
+                with Horizontal():
+                    # Left pane - Uncommitted changes
+                    with Vertical(classes="pane"):
+                        yield Static("[bold]Uncommitted Changes[/bold]", classes="pane-title")
+                        yield Static("Loading...", id="uncommitted-files", classes="file-list")
 
-                # Middle pane - Committed files
-                with Vertical(classes="pane"):
-                    yield Static("[bold]Committed Files[/bold]", classes="pane-title")
-                    yield Static("Loading...", id="committed-files", classes="file-list")
+                    # Middle pane - Committed files
+                    with Vertical(classes="pane"):
+                        yield Static("[bold]Committed Files[/bold]", classes="pane-title")
+                        yield Static("Loading...", id="committed-files", classes="file-list")
 
-                # Right pane - Active changes
-                with Vertical(classes="pane"):
-                    yield Static("[bold]Active Changes[/bold]", classes="pane-title")
-                    yield Static("💤 Watching...", id="active-changes", classes="file-list")
+                    # Right pane - Active changes
+                    with Vertical(classes="pane"):
+                        yield Static("[bold]Active Changes[/bold]", classes="pane-title")
+                        yield Static("💤 Watching...", id="active-changes", classes="file-list")
 
-        yield Static("Ready", id="status-bar")
+            yield Static("Ready", id="status-bar")
+
+        yield Footer()
 
     async def on_mount(self) -> None:
         """Initialize when app starts."""
@@ -126,7 +143,7 @@ class RepoWatchApp(App):
         """Handle file change events."""
         try:
             rel_path = Path(file_path).relative_to(self.repo_path)
-            self.active_changes.add(rel_path)
+            self.active_changes[rel_path] = datetime.now()
 
             # Update status
             asyncio.create_task(self.update_status())
@@ -136,9 +153,23 @@ class RepoWatchApp(App):
     async def animation_loop(self):
         """Run animation loop."""
         while True:
+            current_time = datetime.now()
+
+            # Remove files that have been active for more than 1 second
+            expired_files = [
+                file_path for file_path, timestamp
+                in self.active_changes.items()
+                if (current_time - timestamp).total_seconds() > 1.0
+            ]
+            for expired_file in expired_files:
+                del self.active_changes[expired_file]
+
             if self.active_changes:
                 self.frame_index += 1
                 self.update_active_changes()
+            elif expired_files:  # Update display when files expire
+                self.update_active_changes()
+
             await asyncio.sleep(0.1)
 
     def update_active_changes(self):
@@ -147,7 +178,7 @@ class RepoWatchApp(App):
 
         if self.active_changes:
             spinner = self.animation_frames[self.frame_index % len(self.animation_frames)]
-            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes)
+            file_list = "\n".join(f"{spinner} {file}" for file in self.active_changes.keys())
             changes_widget.update(f"Active changes:\n{file_list}")
         else:
             changes_widget.update("💤 Watching for changes...")
