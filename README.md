@@ -21,16 +21,20 @@ python run.py
 
 ## Usage
 
+Use the provided runner script for proper environment setup and argument handling:
+
 ```bash
 # Watch current directory
-python run.py
+./run.sh
 
 # Watch specific repository
-python run.py /path/to/git/repo
+./run.sh --repo /path/to/git/repo
 
-# Set via environment variable
-REPO_WATCH_REPO_PATH=/path/to/repo python run.py
+# Show help
+./run.sh --help
 ```
+
+The runner script automatically sets the `REPO_WATCH_REPO_PATH` environment variable and provides helpful usage information before launching the TUI.
 
 ## Interface
 
