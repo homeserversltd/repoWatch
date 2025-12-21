@@ -17,9 +17,9 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
     // Extract config values with defaults
     orch->config.title = expandvars("Three Pane TUI Demo");
     orch->config.exit_keys = strdup("qQ");
-    orch->config.pane1_title = expandvars("Left Pane");
-    orch->config.pane2_title = expandvars("Center Pane");
-    orch->config.pane3_title = expandvars("Right Pane");
+    orch->config.pane1_title = strdup("");  // Empty - repo headers provide context
+    orch->config.pane2_title = strdup("");  // Empty - repo headers provide context
+    orch->config.pane3_title = strdup("");  // Empty - repo headers provide context
     orch->config.default_view = VIEW_FLAT;
     orch->current_view = orch->config.default_view;
 
@@ -31,6 +31,18 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
     }
 
     json_free(config);
+    return 0;
+}
+
+// Check if a file was present at startup
+int was_startup_file(three_pane_tui_orchestrator_t* orch, const char* filepath) {
+    if (!orch || !filepath) return 0;
+
+    for (size_t i = 0; i < orch->data.startup_file_count; i++) {
+        if (strcmp(orch->data.startup_files[i], filepath) == 0) {
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -59,28 +71,36 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
         fprintf(stderr, "Warning: Failed to load dirty files data, using empty pane\n");
     }
 
-    // Initialize pane1 scroll state (after data is loaded)
+    // Initialize pane1 and pane2 scroll state (after data is loaded)
     orch->data.pane1_scroll.scroll_position = 0;
     orch->data.pane1_scroll.total_items = orch->data.pane1_count;
     orch->data.pane2_scroll.scroll_position = 0;
     orch->data.pane2_scroll.total_items = orch->data.pane2_count;
-    orch->data.pane3_scroll.scroll_position = 0;
-    orch->data.pane3_scroll.total_items = orch->data.pane3_count;
+    // pane3 uses animations, not scroll state
 
     if (load_committed_not_pushed_data(orch, orch->current_view) != 0) {
         fprintf(stderr, "Warning: Failed to load committed-not-pushed data, using fallback\n");
         // Could add fallback data here if needed
     }
 
-    if (load_hardcoded_data(orch) != 0) {
-        free(orch->config.title);
-        free(orch->config.exit_keys);
-        free(orch->config.pane1_title);
-        free(orch->config.pane2_title);
-        free(orch->config.pane3_title);
-        free(orch->module_path);
-        free(orch);
-        return NULL;
+    // Capture files that are currently dirty at startup (don't animate these)
+    size_t startup_count = 0;
+    active_file_info_t* startup_files = load_file_changes_data(&startup_count);
+
+    if (startup_files && startup_count > 0) {
+        orch->data.startup_files = calloc(startup_count, sizeof(char*));
+        if (orch->data.startup_files) {
+            orch->data.startup_file_count = startup_count;
+            for (size_t i = 0; i < startup_count; i++) {
+                orch->data.startup_files[i] = strdup(startup_files[i].path);
+            }
+        }
+
+        // Cleanup temporary array
+        for (size_t i = 0; i < startup_count; i++) {
+            free(startup_files[i].path);
+        }
+        free(startup_files);
     }
 
     return orch;
@@ -107,10 +127,17 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
         }
         free(orch->data.pane2_items);
 
-        for (size_t i = 0; i < orch->data.pane3_count; i++) {
-            free(orch->data.pane3_items[i]);
+        // Cleanup active animations (replaces pane3_items)
+        for (size_t i = 0; i < orch->data.active_animation_count; i++) {
+            cleanup_animation_state(orch->data.active_animations[i]);
         }
-        free(orch->data.pane3_items);
+        free(orch->data.active_animations);
+
+        // Cleanup startup files
+        for (size_t i = 0; i < orch->data.startup_file_count; i++) {
+            free(orch->data.startup_files[i]);
+        }
+        free(orch->data.startup_files);
 
         free(orch->module_path);
         free(orch);
@@ -177,10 +204,9 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     int pane_width = width / 3;
     int pane_height = height - 5; // Available rows for content
 
-    // Update initial scroll states
+    // Update initial scroll states (pane3 uses animations, not scroll state)
     update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
     update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
-    update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
 
     while (running) {
         // Check for redraw request from signal handler
@@ -190,10 +216,9 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             get_terminal_size(&width, &height);
             pane_width = width / 3;
             pane_height = height - 5;
-            // Update scroll states for new dimensions
+            // Update scroll states for new dimensions (pane3 uses animations, not scroll state)
             update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
             update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
-            update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
             draw_tui_overlay(orch);
         }
 
@@ -217,8 +242,81 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                 pane_height = height - 5;
                 update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
                 update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
-                update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
+                // pane3 uses animations, not scroll state
                 draw_tui_overlay(orch);
+            }
+
+            // Manage animation states for active file changes
+            size_t active_file_count = 0;
+            active_file_info_t* active_files = load_file_changes_data(&active_file_count);
+
+            if (active_files) {
+                time_t now = time(NULL);
+
+                // Remove expired animations
+                size_t write_idx = 0;
+                for (size_t i = 0; i < orch->data.active_animation_count; i++) {
+                    animation_state_t* anim = orch->data.active_animations[i];
+                    if (!is_animation_expired(anim, now)) {
+                        // Keep this animation
+                        if (write_idx != i) {
+                            orch->data.active_animations[write_idx] = orch->data.active_animations[i];
+                        }
+                        write_idx++;
+                    } else {
+                        // Remove expired animation
+                        cleanup_animation_state(anim);
+                    }
+                }
+                orch->data.active_animation_count = write_idx;
+
+                // Update existing animations and add new ones
+                for (size_t i = 0; i < active_file_count; i++) {
+                    active_file_info_t* file_info = &active_files[i];
+                    int found = 0;
+
+                    // Check if we already have an animation for this file
+                    for (size_t j = 0; j < orch->data.active_animation_count; j++) {
+                        animation_state_t* anim = orch->data.active_animations[j];
+                        if (strcmp(anim->filepath, file_info->path) == 0) {
+                            // Update existing animation - reset the timer
+                            anim->end_time = file_info->last_updated + 30;
+                            found = 1;
+                            break;
+                        }
+                    }
+
+                    // If not found, create new animation (skip files that were dirty at startup)
+                    if (!found && !was_startup_file(orch, file_info->path)) {
+                        animation_state_t* new_anim = create_animation_state(file_info->path, ANIM_SCROLL_LEFT_RIGHT, pane_width);
+                        if (new_anim) {
+                            // Set timing for runtime animations
+                            new_anim->start_time = file_info->last_updated;
+                            new_anim->end_time = file_info->last_updated + 30;
+
+                            // Add to animations array
+                            orch->data.active_animations = realloc(orch->data.active_animations,
+                                                                 (orch->data.active_animation_count + 1) * sizeof(animation_state_t*));
+                            if (orch->data.active_animations) {
+                                orch->data.active_animations[orch->data.active_animation_count] = new_anim;
+                                orch->data.active_animation_count++;
+                            } else {
+                                cleanup_animation_state(new_anim);
+                            }
+                        }
+                    }
+                }
+
+                // Update scroll positions for all active animations
+                for (size_t i = 0; i < orch->data.active_animation_count; i++) {
+                    update_animation_state(orch->data.active_animations[i], pane_width, now);
+                }
+
+                // Cleanup active files info
+                for (size_t i = 0; i < active_file_count; i++) {
+                    free(active_files[i].path);
+                }
+                free(active_files);
             }
             last_git_check = now;  // Reset timer
         }
@@ -257,13 +355,12 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                             // Reload data with new view mode for both panes
                             if (load_dirty_files_data(orch, orch->current_view) == 0 &&
                                 load_committed_not_pushed_data(orch, orch->current_view) == 0) {
-                                // Update scroll states to reflect new data count after view change
+                                // Update scroll states to reflect new data count after view change (pane3 uses animations)
                                 get_terminal_size(&width, &height);
                                 pane_width = width / 3;
                                 pane_height = height - 5;
                                 update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
                                 update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
-                                update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
                                 draw_tui_overlay(orch);
                             }
                         }
@@ -276,7 +373,7 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                     switch (pane_index) {
                         case 1: scroll_state = &orch->data.pane1_scroll; break;
                         case 2: scroll_state = &orch->data.pane2_scroll; break;
-                        case 3: scroll_state = &orch->data.pane3_scroll; break;
+                        case 3: scroll_state = NULL; break; // Pane 3 uses animations, no scroll state
                     }
                     if (scroll_state) {
                         update_pane_scroll(scroll_state, scroll_delta);

@@ -10,9 +10,10 @@ STYLES_OBJS = styles/styles.o
 DATA_OBJS = data/data.o
 UI_OBJS = ui/ui.o
 MAIN_OBJS = main/main.o
+ANIM_OBJS = animations/animations.o
 
 # All object files
-ALL_OBJS = $(CORE_OBJS) $(STYLES_OBJS) $(DATA_OBJS) $(UI_OBJS) $(MAIN_OBJS)
+ALL_OBJS = $(CORE_OBJS) $(STYLES_OBJS) $(DATA_OBJS) $(UI_OBJS) $(MAIN_OBJS) $(ANIM_OBJS)
 
 # JSON utils dependencies (built by root Makefile, assume they exist)
 JSON_UTILS = ../json-utils/json-utils.o ../json-utils/get-value.o
@@ -35,6 +36,9 @@ ui/ui.o: ui/ui.c three-pane-tui.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 main/main.o: main/main.c three-pane-tui.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+animations/animations.o: animations/animations.c three-pane-tui.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 three-pane-tui.o: three-pane-tui.c three-pane-tui.h

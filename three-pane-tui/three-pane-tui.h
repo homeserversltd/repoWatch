@@ -18,6 +18,12 @@ typedef enum {
     VIEW_TREE
 } view_mode_t;
 
+// Animation types enumeration
+typedef enum {
+    ANIM_SCROLL_LEFT_RIGHT
+    // Future: ANIM_PULSE, ANIM_BLINK, etc.
+} animation_type_t;
+
 // Style configuration for file colorization
 typedef struct {
     int directory_color;
@@ -74,17 +80,29 @@ typedef struct {
     int total_items;        // Total number of items in pane
 } pane_scroll_state_t;
 
-// Hardcoded data for the three panes
+// Animation state structure
+typedef struct {
+    animation_type_t type;
+    char* filepath;
+    time_t start_time;
+    time_t end_time;  // start_time + 30 seconds
+    int scroll_position;  // For scroll animations
+    int pane_width;  // Cached pane width for calculations
+} animation_state_t;
+
+// Data for the three panes (pane3 uses animations instead of hardcoded items)
 typedef struct {
     char** pane1_items;
     size_t pane1_count;
     char** pane2_items;
     size_t pane2_count;
-    char** pane3_items;
-    size_t pane3_count;
+    animation_state_t** active_animations;  // Active file change animations for pane 3
+    size_t active_animation_count;
+    char** startup_files;  // Files that were dirty at startup (don't animate)
+    size_t startup_file_count;
     pane_scroll_state_t pane1_scroll;
     pane_scroll_state_t pane2_scroll;
-    pane_scroll_state_t pane3_scroll;
+    // pane3_scroll removed - animations don't use scroll state
 } three_pane_data_t;
 
 // Orchestrator for three-pane-tui module
@@ -124,16 +142,33 @@ char* truncate_string_right_priority(const char* str, int max_width);
 
 // Styles module functions
 int get_file_color(const char* filepath, const style_config_t* styles);
+int get_repo_color(const char* repo_name);
+int get_repo_color_index(const char* repo_name);
+int color_index_to_ansi(int index);
+void adjust_colors_no_touching(int* colors, size_t count);
 int load_styles(style_config_t* styles, const char* module_path);
+
+// Structure to hold active file information
+typedef struct {
+    char* path;
+    time_t last_updated;
+} active_file_info_t;
 
 // Data module functions
 int load_git_submodules_data(three_pane_tui_orchestrator_t* orch);
 int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode);
 int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode);
-int load_hardcoded_data(three_pane_tui_orchestrator_t* orch);
+active_file_info_t* load_file_changes_data(size_t* active_count);
+
+// Animation module functions
+animation_state_t* create_animation_state(const char* filepath, animation_type_t type, int pane_width);
+void update_animation_state(animation_state_t* anim, int pane_width, time_t now);
+void render_scroll_left_right(animation_state_t* anim, int row, int start_col, int width);
+int is_animation_expired(animation_state_t* anim, time_t now);
+void cleanup_animation_state(animation_state_t* anim);
 
 // UI module functions
-void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state);
+void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state, three_pane_tui_orchestrator_t* orch);
 void draw_tui_overlay(three_pane_tui_orchestrator_t* orch);
 int get_pane_at_position(int x, int y, int pane_width, int total_width, int pane_height);
 void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction);
@@ -144,5 +179,6 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path);
 void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch);
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch);
 int load_config(three_pane_tui_orchestrator_t* orch);
+int was_startup_file(three_pane_tui_orchestrator_t* orch, const char* filepath);
 
 #endif // THREE_PANE_TUI_H

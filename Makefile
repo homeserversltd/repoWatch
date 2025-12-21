@@ -54,6 +54,10 @@ dirty-files: dirty-files/dirty-files.o $(JSON_UTILS_LIB)
 	$(CC) $(CFLAGS) -o $@/dirty-files $^ $(LDFLAGS)
 	@echo "✓ dirty-files built"
 
+file-changes-watcher: file-changes-watcher/file-changes-watcher.o $(JSON_UTILS_LIB)
+	$(CC) $(CFLAGS) -o $@/file-changes-watcher $^ $(LDFLAGS)
+	@echo "✓ file-changes-watcher built"
+
 file-tree: file-tree/file-tree.o $(JSON_UTILS_LIB)
 	$(CC) $(CFLAGS) -o $@/file-tree $^ $(LDFLAGS)
 	@echo "✓ file-tree built"

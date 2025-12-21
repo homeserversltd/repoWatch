@@ -12,6 +12,8 @@
   "children": [
     "git-submodules",
     "committed-not-pushed",
+    "dirty-files",
+    "file-changes-watcher",
     "three-pane-tui"
   ],
   "execution": {

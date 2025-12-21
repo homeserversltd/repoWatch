@@ -32,9 +32,9 @@ int get_file_color(const char* filepath, const style_config_t* styles) {
     return styles->files.file_default_color;
 }
 
-// Get deterministic color for a repository based on its name
-int get_repo_color(const char* repo_name) {
-    if (!repo_name) return 37; // Default white
+// Get deterministic color index (1-8) for a repository based on its name
+int get_repo_color_index(const char* repo_name) {
+    if (!repo_name) return 7; // Default white (index 7)
 
     // Simple hash function for deterministic color assignment (djb2 algorithm)
     unsigned long hash = 5381;
@@ -44,9 +44,37 @@ int get_repo_color(const char* repo_name) {
         p++;
     }
 
+    // Return color index 1-8 (instead of ANSI codes)
+    return (hash % 8) + 1;
+}
+
+// Convert color index (1-8) to ANSI color code
+int color_index_to_ansi(int index) {
     // 8-color palette: red, green, yellow, blue, magenta, cyan, white, bright green
     int colors[] = {31, 32, 33, 34, 35, 36, 37, 92};
-    return colors[hash % 8];
+    if (index >= 1 && index <= 8) {
+        return colors[index - 1]; // Convert 1-based index to 0-based array
+    }
+    return 37; // Default white for invalid indices
+}
+
+// Adjust color indices to ensure no two adjacent items have the same color
+// Modifies the colors array in-place
+void adjust_colors_no_touching(int* colors, size_t count) {
+    if (!colors || count <= 1) return;
+
+    for (size_t i = 1; i < count; i++) {
+        if (colors[i] == colors[i - 1]) {
+            // Increment color and wrap around (8 -> 1)
+            colors[i] = (colors[i] % 8) + 1;
+        }
+    }
+}
+
+// Get deterministic ANSI color for a repository based on its name (backwards compatibility)
+int get_repo_color(const char* repo_name) {
+    int index = get_repo_color_index(repo_name);
+    return color_index_to_ansi(index);
 }
 
 // Load style configuration from index.json

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "File Changes Watcher",
+    "description": "Tracks file change timestamps from dirty-files-report.json and maintains active file change state"
+  },
+  "paths": {
+    "repo_path": "/home/owner/git/serverGenesis"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "max_file_count": 100,
+    "animation_duration_seconds": 30,
+    "update_interval_ms": 200
+  }
+}
+

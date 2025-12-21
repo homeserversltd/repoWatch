@@ -561,25 +561,26 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
             }
         }
     } else {
-        // Flat view mode
-        // Count total dirty files across all repositories
-        size_t total_files = 0;
+        // Flat view mode - group files by repository with headers
+        // Count total items needed (repository headers + files per repository)
+        size_t total_items = 0;
         for (size_t i = 0; i < repos->value.arr_val->count; i++) {
             json_value_t* repo = repos->value.arr_val->items[i];
             if (repo->type != JSON_OBJECT) continue;
 
             json_value_t* files = get_nested_value(repo, "dirty_files");
-            if (files && files->type == JSON_ARRAY) {
-                total_files += files->value.arr_val->count;
+            if (files && files->type == JSON_ARRAY && files->value.arr_val->count > 0) {
+                total_items += 1; // Repository header
+                total_items += files->value.arr_val->count; // File items
             }
         }
 
-        // Allocate space for all dirty files
-        orch->data.pane1_count = total_files;
-        orch->data.pane1_items = calloc(total_files, sizeof(char*));
+        // Allocate space for all items
+        orch->data.pane1_count = total_items;
+        orch->data.pane1_items = calloc(total_items, sizeof(char*));
 
-        // Parse dirty files from each repository
-        size_t file_index = 0;
+        // Parse dirty files from each repository, grouped by repository
+        size_t item_index = 0;
         for (size_t i = 0; i < repos->value.arr_val->count; i++) {
             json_value_t* repo = repos->value.arr_val->items[i];
             if (repo->type != JSON_OBJECT) continue;
@@ -587,21 +588,30 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
             json_value_t* repo_name = get_nested_value(repo, "name");
             json_value_t* files = get_nested_value(repo, "dirty_files");
 
-            if (!files || files->type != JSON_ARRAY) continue;
+            if (!files || files->type != JSON_ARRAY || files->value.arr_val->count == 0) continue;
 
-            // Add each dirty file with repository prefix
-            for (size_t j = 0; j < files->value.arr_val->count && file_index < total_files; j++) {
+            // Get repository name
+            json_value_t* repo_path = get_nested_value(repo, "path");
+            const char* display_name = repo_name && repo_name->type == JSON_STRING ? repo_name->value.str_val : "unknown";
+            if (repo_path && repo_path->type == JSON_STRING) {
+                const char* path = repo_path->value.str_val;
+                const char* repo_name_from_path = strrchr(path, '/');
+                if (repo_name_from_path) {
+                    display_name = repo_name_from_path + 1;
+                }
+            }
+
+            // Add repository header
+            char header_buffer[512];
+            snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", display_name);
+            orch->data.pane1_items[item_index++] = strdup(header_buffer);
+
+            // Add each dirty file (plain filename, no repo prefix)
+            for (size_t j = 0; j < files->value.arr_val->count; j++) {
                 json_value_t* file = files->value.arr_val->items[j];
-                if (file->type == JSON_STRING) {
-                    char buffer[1024];
-                    if (repo_name && repo_name->type == JSON_STRING) {
-                        snprintf(buffer, sizeof(buffer), "%s: %s",
-                                repo_name->value.str_val, file->value.str_val);
-                    } else {
-                        snprintf(buffer, sizeof(buffer), "%s", file->value.str_val);
-                    }
-                    orch->data.pane1_items[file_index] = strdup(buffer);
-                    file_index++;
+                if (file->type == JSON_STRING && item_index < total_items) {
+                    // Store just the filename without repository prefix
+                    orch->data.pane1_items[item_index++] = strdup(file->value.str_val);
                 }
             }
         }
@@ -611,31 +621,76 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
     return 0;
 }
 
-// Load hardcoded data for the third pane (right pane)
-int load_hardcoded_data(three_pane_tui_orchestrator_t* orch) {
-    // Right pane data (keeping this hardcoded as requested) - add more items for scrolling test
-    orch->data.pane3_count = 20;
-    orch->data.pane3_items = calloc(20, sizeof(char*));
-    orch->data.pane3_items[0] = strdup("Live Feed of Changes");
-    orch->data.pane3_items[1] = strdup("├── Modified files");
-    orch->data.pane3_items[2] = strdup("├── New files");
-    orch->data.pane3_items[3] = strdup("├── Deleted files");
-    orch->data.pane3_items[4] = strdup("├── Renamed files");
-    orch->data.pane3_items[5] = strdup("├── Untracked files");
-    orch->data.pane3_items[6] = strdup("├── Staged changes");
-    orch->data.pane3_items[7] = strdup("├── Commit history");
-    orch->data.pane3_items[8] = strdup("├── Branch status");
-    orch->data.pane3_items[9] = strdup("├── Remote status");
-    orch->data.pane3_items[10] = strdup("├── Merge conflicts");
-    orch->data.pane3_items[11] = strdup("├── Stash list");
-    orch->data.pane3_items[12] = strdup("├── Tag list");
-    orch->data.pane3_items[13] = strdup("├── Submodule status");
-    orch->data.pane3_items[14] = strdup("├── Worktree list");
-    orch->data.pane3_items[15] = strdup("├── Reflog entries");
-    orch->data.pane3_items[16] = strdup("├── Config changes");
-    orch->data.pane3_items[17] = strdup("├── Hook status");
-    orch->data.pane3_items[18] = strdup("├── LFS objects");
-    orch->data.pane3_items[19] = strdup("└── Build artifacts");
+// active_file_info_t is defined in three-pane-tui.h
 
-    return 0;
+// Load file changes data from file-changes-report.json and return active files info
+active_file_info_t* load_file_changes_data(size_t* active_count) {
+    json_value_t* report = json_parse_file("file-changes-report.json");
+    if (!report || report->type != JSON_OBJECT) {
+        fprintf(stderr, "Failed to load file-changes-report.json\n");
+        *active_count = 0;
+        return NULL;
+    }
+
+    json_value_t* files = get_nested_value(report, "files");
+    if (!files || files->type != JSON_ARRAY) {
+        fprintf(stderr, "No files found in file-changes-report.json\n");
+        json_free(report);
+        *active_count = 0;
+        return NULL;
+    }
+
+    time_t now = time(NULL);
+    size_t count = 0;
+
+    // Count active files (within last 30 seconds)
+    for (size_t i = 0; i < files->value.arr_val->count; i++) {
+        json_value_t* file_obj = files->value.arr_val->items[i];
+        if (file_obj->type != JSON_OBJECT) continue;
+
+        json_value_t* last_updated = get_nested_value(file_obj, "last_updated");
+        if (last_updated && last_updated->type == JSON_NUMBER) {
+            time_t updated_time = (time_t)last_updated->value.num_val;
+            if (now - updated_time < 30) {  // Active within 30 seconds
+                count++;
+            }
+        }
+    }
+
+    active_file_info_t* active_files = NULL;
+    if (count > 0) {
+        active_files = calloc(count, sizeof(active_file_info_t));
+        if (!active_files) {
+            json_free(report);
+            *active_count = 0;
+            return NULL;
+        }
+    }
+
+    *active_count = 0;
+
+    // Collect active file information
+    for (size_t i = 0; i < files->value.arr_val->count; i++) {
+        json_value_t* file_obj = files->value.arr_val->items[i];
+        if (file_obj->type != JSON_OBJECT) continue;
+
+        json_value_t* path = get_nested_value(file_obj, "path");
+        json_value_t* last_updated = get_nested_value(file_obj, "last_updated");
+
+        if (path && path->type == JSON_STRING &&
+            last_updated && last_updated->type == JSON_NUMBER) {
+
+            time_t updated_time = (time_t)last_updated->value.num_val;
+            if (now - updated_time < 30) {  // Active within 30 seconds
+                active_file_info_t* info = &active_files[*active_count];
+                info->path = strdup(path->value.str_val);
+                info->last_updated = updated_time;
+                (*active_count)++;
+            }
+        }
+    }
+
+    json_free(report);
+    return active_files;
 }
+

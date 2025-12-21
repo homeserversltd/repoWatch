@@ -67,10 +67,72 @@ int get_pane_at_position(int x, int y, int pane_width, int total_width, int pane
     return 0; // Outside panes
 }
 
-// Draw a single pane with scroll support
-void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state) {
+// Extract repository name from a "Repository: reponame" header string
+static char* extract_repo_name_from_header(const char* item) {
+    if (!item) return NULL;
+
+    const char* prefix = "Repository: ";
+    size_t prefix_len = strlen(prefix);
+
+    if (strncmp(item, prefix, prefix_len) == 0) {
+        return strdup(item + prefix_len);
+    }
+
+    return NULL;
+}
+
+// Draw a single pane with scroll support (pane 3 uses animations instead of items)
+void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state, three_pane_tui_orchestrator_t* orch) {
     // Safety checks
-    if (!title || !items || !styles || width <= 0 || height <= 0) {
+    if (!title || !styles || width <= 0 || height <= 0) {
+        return;
+    }
+
+    // Handle pane 3 (right pane) - render animations instead of items
+    if (pane_index == 3) {
+        // Debug: Clear the entire pane first
+        for (int row = 3; row <= 3 + height; row++) {
+            move_cursor(row, start_col);
+            for (int col = 0; col < width; col++) {
+                putchar(' ');
+            }
+        }
+
+        // Draw title
+        move_cursor(3, start_col);
+        set_color(title_color);
+        set_bold();
+        printf("%s", title);
+        reset_colors();
+
+        // Render active animations starting from row 4
+        int current_row = 4;
+        int max_row = 3 + height;
+        int last_animation_row = current_row;
+
+        for (size_t i = 0; i < orch->data.active_animation_count && current_row <= max_row; i++) {
+            animation_state_t* anim = orch->data.active_animations[i];
+            if (anim) {
+                render_scroll_left_right(anim, current_row, start_col, width);
+                last_animation_row = current_row + 1;
+                current_row++;
+            }
+        }
+
+        // Clear any remaining rows in the pane that no longer have animations
+        for (int clear_row = last_animation_row; clear_row <= max_row; clear_row++) {
+            move_cursor(clear_row, start_col);
+            // Clear the entire row by printing spaces
+            for (int col = 0; col < width; col++) {
+                putchar(' ');
+            }
+        }
+
+        return; // Done rendering pane 3
+    }
+
+    // For panes 1 and 2, use the original items-based rendering
+    if (!items) {
         return;
     }
 
@@ -109,27 +171,85 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
         end_item = item_count;
     }
 
+    // Phase 1: Collect all color indices for visible items
+    int* item_colors = calloc(end_item - start_item, sizeof(int));
+    size_t color_idx = 0;
+
+    for (size_t i = start_item; i < end_item; i++) {
+        char* repo_name = extract_repo_name_from_header(items[i]);
+        if (repo_name) {
+            // Repository header - get color index directly
+            item_colors[color_idx] = get_repo_color_index(repo_name);
+            free(repo_name);
+        } else {
+            // Content item - determine color based on current repository context
+            int repo_color = 0;
+            // Scan backwards from this item to find the repository header
+            for (size_t scan_idx = i; ; scan_idx--) {
+                if (scan_idx >= item_count) break; // Safety check
+                char* scan_repo_name = extract_repo_name_from_header(items[scan_idx]);
+                if (scan_repo_name) {
+                    repo_color = get_repo_color_index(scan_repo_name);
+                    free(scan_repo_name);
+                    break; // Found the repository header
+                }
+                if (scan_idx == 0) break; // Reached the beginning
+            }
+            item_colors[color_idx] = repo_color;
+        }
+        color_idx++;
+    }
+
+    // Phase 2: Apply non-touching adjustment to color indices
+    adjust_colors_no_touching(item_colors, color_idx);
+
     // Draw visible items only
+    size_t display_idx = 0;
     for (size_t i = start_item; i < end_item && current_row <= max_row; i++) {
         move_cursor(current_row, start_col);
-        // Apply color based on file type
-        int file_color = get_file_color(items[i], styles);
-        set_color(file_color);
 
-        // Smart truncation prioritizing filename over directory path
-        const char* text = items[i];
-        int max_text_width = width; // Fill the pane completely
+        // Check if this is a repository header
+        char* repo_name = extract_repo_name_from_header(items[i]);
+        if (repo_name) {
+            // This is a repository header - center it and use adjusted repo color
+            int repo_ansi_color = color_index_to_ansi(item_colors[display_idx]);
 
-        // For pane 1 (tree view), allow much longer names before truncating
-        if (pane_index == 1) {
-            max_text_width = 256; // Allow full file names in tree view
+            // Center the header text within the pane width
+            int text_len = strlen(items[i]);
+            int center_col = start_col + (width - text_len) / 2;
+            if (center_col < start_col) center_col = start_col;
+            if (center_col + text_len > start_col + width) center_col = start_col + width - text_len;
+
+            move_cursor(current_row, center_col);
+            set_color(repo_ansi_color);
+            set_bold();
+            printf("%s", items[i]);
+            reset_colors();
+
+            free(repo_name);
+        } else {
+            // This is a content item - use adjusted repo color or file color
+            int item_color = item_colors[display_idx] ? color_index_to_ansi(item_colors[display_idx]) : get_file_color(items[i], styles);
+            set_color(item_color);
+
+            // Smart truncation prioritizing filename over directory path
+            const char* text = items[i];
+            int max_text_width = width; // Fill the pane completely
+
+            // For pane 1 (tree view), allow much longer names before truncating
+            if (pane_index == 1) {
+                max_text_width = 256; // Allow full file names in tree view
+            }
+
+            // Use glyph-aware right-priority truncation for all content
+            char* display_text = truncate_string_right_priority(text, max_text_width);
+            printf("%s", display_text);
+            free(display_text);
+            reset_colors();
         }
 
-        // Use glyph-aware right-priority truncation for all content
-        char* display_text = truncate_string_right_priority(text, max_text_width);
-        printf("%s", display_text);
-        free(display_text);
-        reset_colors();
+        display_idx++;
+
         current_row++;
     }
 
@@ -149,6 +269,9 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
             printf("↓");
         }
     }
+
+    // Cleanup color array
+    free(item_colors);
 }
 
 // Draw the three-pane TUI overlay
@@ -214,14 +337,14 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     // Draw three panes side by side, maximizing screen space
     // Each pane starts at row 2 (below the main title)
     draw_pane(1, pane_width - 1, pane_height, orch->config.pane1_title,
-              orch->data.pane1_items, orch->data.pane1_count, orch->config.styles.ui.pane_titles.left, &orch->config.styles, 1, &orch->data.pane1_scroll);
+              orch->data.pane1_items, orch->data.pane1_count, orch->config.styles.ui.pane_titles.left, &orch->config.styles, 1, &orch->data.pane1_scroll, orch);
 
     draw_pane(pane_width + 1, pane_width - 1, pane_height, orch->config.pane2_title,
-              orch->data.pane2_items, orch->data.pane2_count, orch->config.styles.ui.pane_titles.center, &orch->config.styles, 2, &orch->data.pane2_scroll);
+              orch->data.pane2_items, orch->data.pane2_count, orch->config.styles.ui.pane_titles.center, &orch->config.styles, 2, &orch->data.pane2_scroll, orch);
 
-    // Rightmost pane gets any remaining width minus the border
+    // Rightmost pane gets any remaining width minus the border (uses animations, not items)
     draw_pane(pane_width * 2 + 1, pane_width + remaining_width - 1, pane_height, orch->config.pane3_title,
-              orch->data.pane3_items, orch->data.pane3_count, orch->config.styles.ui.pane_titles.right, &orch->config.styles, 3, &orch->data.pane3_scroll);
+              NULL, 0, orch->config.styles.ui.pane_titles.right, &orch->config.styles, 3, NULL, orch);
 
     // Footer at bottom (after the horizontal separator)
     move_cursor(height, 1);
