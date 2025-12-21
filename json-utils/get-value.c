@@ -33,6 +33,9 @@ json_value_t* get_nested_value(json_value_t* root, const char* key_path) {
     return token ? NULL : current; // If we still have tokens, we didn't find the full path
 }
 
+// Separate main function for standalone utility
+#ifndef GET_VALUE_LIBRARY_ONLY
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <key_path> [path]\n", argv[0]);
@@ -88,3 +91,4 @@ int main(int argc, char* argv[]) {
     json_free(root);
     return 0;
 }
+#endif // GET_VALUE_LIBRARY_ONLY

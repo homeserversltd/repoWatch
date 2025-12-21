@@ -8,6 +8,7 @@
 #include <termios.h>
 #include <regex.h>
 #include <time.h>
+#include <stdarg.h>
 #include "json-utils/json-utils.h"
 
 // Configuration structure following infinite index pattern
@@ -38,6 +39,7 @@ typedef struct {
     size_t num_children;
     time_t session_start;
     time_t session_end;
+    FILE* log_file;
 } root_state_t;
 
 // Orchestrator structure
@@ -142,6 +144,26 @@ int load_config(orchestrator_t* orch) {
     return 0;
 }
 
+// Logging function for state tracking
+void log_state(orchestrator_t* orch, const char* message, ...) {
+    if (!orch->state.log_file) return;
+
+    va_list args;
+    va_start(args, message);
+
+    time_t now = time(NULL);
+    char timestamp[26];
+    ctime_r(&now, timestamp);
+    timestamp[strlen(timestamp) - 1] = '\0'; // Remove newline
+
+    fprintf(orch->state.log_file, "[%s] ", timestamp);
+    vfprintf(orch->state.log_file, message, args);
+    fprintf(orch->state.log_file, "\n");
+    fflush(orch->state.log_file);
+
+    va_end(args);
+}
+
 // Initialize orchestrator
 orchestrator_t* orchestrator_init(const char* module_path) {
     orchestrator_t* orch = calloc(1, sizeof(orchestrator_t));
@@ -165,6 +187,15 @@ orchestrator_t* orchestrator_init(const char* module_path) {
     orch->state.session_start = time(NULL);
     orch->state.session_end = 0;
 
+    // Open log file
+    char log_path[1024];
+    snprintf(log_path, sizeof(log_path), "%s/session.log", orch->module_path);
+    orch->state.log_file = fopen(log_path, "w");
+    if (orch->state.log_file) {
+        log_state(orch, "Session started - Module path: %s", orch->module_path);
+        log_state(orch, "Config loaded - Repo: %s, Cache: %s", orch->config.repo_path, orch->config.cache_dir);
+    }
+
     return orch;
 }
 
@@ -186,6 +217,12 @@ void add_child_state(orchestrator_t* orch, const char* name, int exit_code, time
 // Cleanup orchestrator
 void orchestrator_cleanup(orchestrator_t* orch) {
     if (orch) {
+        // Log session end
+        if (orch->state.log_file) {
+            log_state(orch, "Session ended - Total children executed: %zu", orch->state.num_children);
+            fclose(orch->state.log_file);
+        }
+
         // Cleanup config
         free(orch->config.repo_path);
         free(orch->config.config_dir);
@@ -207,6 +244,8 @@ void orchestrator_cleanup(orchestrator_t* orch) {
 
 // Execute children following infinite index pattern
 int execute_children(orchestrator_t* orch) {
+    log_state(orch, "Beginning child execution phase");
+
     printf("repoWatch orchestrator initialized\n");
     printf("Repository path: %s\n", orch->config.repo_path);
     printf("Config directory: %s\n", orch->config.config_dir);
@@ -256,10 +295,13 @@ int execute_children(orchestrator_t* orch) {
     pclose(child_fp);
 
     if (!children || num_children == 0) {
+        log_state(orch, "ERROR: No children found in index.json");
         fprintf(stderr, "Error: Could not read children from index.json\n");
         if (children) free(children);
         return 1;
     }
+
+    log_state(orch, "Found %zu children to execute: %s", num_children, line);
 
     for (size_t i = 0; i < num_children; i++) {
         const char* child_name = children[i];
@@ -274,6 +316,7 @@ int execute_children(orchestrator_t* orch) {
         snprintf(child_cmd, sizeof(child_cmd), "%s/%s/%s", orch->module_path, child_name, child_name);
 
         if (access(child_cmd, X_OK) == 0) {
+            log_state(orch, "Executing child: %s (pattern 1: %s)", child_name, child_cmd);
             printf("Executing child: %s\n", child_name);
 
             time_t start_time = time(NULL);
@@ -281,7 +324,10 @@ int execute_children(orchestrator_t* orch) {
             time_t end_time = time(NULL);
 
             if (result != 0) {
+                log_state(orch, "WARNING: Child '%s' exited with code %d (took %ld seconds)", child_name, result, end_time - start_time);
                 fprintf(stderr, "Warning: Child '%s' exited with code %d\n", child_name, result);
+            } else {
+                log_state(orch, "SUCCESS: Child '%s' completed successfully (took %ld seconds)", child_name, end_time - start_time);
             }
 
             // Read child's report if it exists
@@ -311,6 +357,7 @@ int execute_children(orchestrator_t* orch) {
         snprintf(child_cmd, sizeof(child_cmd), "%s/%s/index", orch->module_path, child_name);
 
         if (access(child_cmd, X_OK) == 0) {
+            log_state(orch, "Executing child: %s (pattern 2: %s)", child_name, child_cmd);
             printf("Executing child: %s (index)\n", child_name);
 
             time_t start_time = time(NULL);
@@ -318,7 +365,10 @@ int execute_children(orchestrator_t* orch) {
             time_t end_time = time(NULL);
 
             if (result != 0) {
+                log_state(orch, "WARNING: Child '%s' exited with code %d (took %ld seconds)", child_name, result, end_time - start_time);
                 fprintf(stderr, "Warning: Child '%s' exited with code %d\n", child_name, result);
+            } else {
+                log_state(orch, "SUCCESS: Child '%s' completed successfully (took %ld seconds)", child_name, end_time - start_time);
             }
 
             // Read child's report if it exists
@@ -344,6 +394,8 @@ int execute_children(orchestrator_t* orch) {
             continue;
         }
 
+        log_state(orch, "Child '%s' not found or not executable (tried patterns: %s/%s and %s/%s/index)",
+                 child_name, orch->module_path, child_name, orch->module_path, child_name);
         printf("Child '%s' not found or not executable\n", child_name);
     }
 
@@ -358,9 +410,12 @@ int execute_children(orchestrator_t* orch) {
 
 // Display aggregated child reports
 void display_child_reports(orchestrator_t* orch) {
+    log_state(orch, "Displaying child execution reports for %zu children", orch->state.num_children);
+
     printf("\n=== CHILD EXECUTION REPORTS ===\n");
 
     if (orch->state.num_children == 0) {
+        log_state(orch, "No children were executed");
         printf("No children executed.\n");
         return;
     }
@@ -437,12 +492,19 @@ int main(int argc, char* argv[]) {
     // Set session end time
     orch->state.session_end = time(NULL);
 
+    log_state(orch, "Child execution phase completed with result: %d", result);
+
     // Display child reports before main loop
     display_child_reports(orch);
+
+    log_state(orch, "Starting main application loop");
 
     // Run main application loop
     if (result == 0) {
         result = run_main_loop();
+        log_state(orch, "Main application loop exited with result: %d", result);
+    } else {
+        log_state(orch, "Skipping main loop due to child execution failure");
     }
 
     // Cleanup

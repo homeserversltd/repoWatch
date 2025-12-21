@@ -103,23 +103,83 @@ char* expandvars(const char* input) {
     return result;
 }
 
-// Load configuration from environment variables and defaults
+// Load configuration from index.json and environment variables
 config_t* load_config() {
     config_t* config = calloc(1, sizeof(config_t));
     if (!config) return NULL;
 
-    // Use the configured repo path from index.json
-    config->repo_path = strdup("/home/owner/git/serverGenesis");
+    // Load index.json configuration
+    json_value_t* root = index_json_load(".");
+    if (root && root->type == JSON_OBJECT) {
+        // Get repo path from paths.repo_path
+        json_value_t* repo_path_val = get_nested_value(root, "paths.repo_path");
+        if (repo_path_val && repo_path_val->type == JSON_STRING) {
+            config->repo_path = strdup(repo_path_val->value.str_val);
+        } else {
+            config->repo_path = strdup("/home/owner/git/serverGenesis");
+        }
 
-    // Expand cache path
-    char* cache_path = expandvars("${XDG_CACHE_HOME:-~/.cache}/repowatch/git-submodules.cache");
-    config->status_cache = cache_path ? cache_path : strdup("/tmp/git-submodules.cache");
+        // Get cache path from paths.status_cache
+        json_value_t* cache_path_val = get_nested_value(root, "paths.status_cache");
+        if (cache_path_val && cache_path_val->type == JSON_STRING) {
+            config->status_cache = expandvars(cache_path_val->value.str_val);
+        } else {
+            char* cache_path = expandvars("${XDG_CACHE_HOME:-~/.cache}/repowatch/git-submodules.cache");
+            config->status_cache = cache_path ? cache_path : strdup("/tmp/git-submodules.cache");
+        }
 
-    config->max_depth = 3;
-    config->check_interval = 1;
-    config->cache_status = 1;
-    config->report_changes_only = 1;
-    config->include_parent_status = 1;
+        // Get max_depth from config.max_depth
+        json_value_t* max_depth_val = get_nested_value(root, "config.max_depth");
+        if (max_depth_val && max_depth_val->type == JSON_NUMBER) {
+            config->max_depth = (int)max_depth_val->value.num_val;
+        } else {
+            config->max_depth = 3; // Default fallback
+        }
+
+        // Get check_interval from config.check_interval
+        json_value_t* check_interval_val = get_nested_value(root, "config.check_interval");
+        if (check_interval_val && check_interval_val->type == JSON_NUMBER) {
+            config->check_interval = (int)check_interval_val->value.num_val;
+        } else {
+            config->check_interval = 1; // Default fallback
+        }
+
+        // Get cache_status from config.cache_status
+        json_value_t* cache_status_val = get_nested_value(root, "config.cache_status");
+        if (cache_status_val && cache_status_val->type == JSON_BOOL) {
+            config->cache_status = cache_status_val->value.bool_val;
+        } else {
+            config->cache_status = 1; // Default fallback
+        }
+
+        // Get report_changes_only from config.report_changes_only
+        json_value_t* report_changes_val = get_nested_value(root, "config.report_changes_only");
+        if (report_changes_val && report_changes_val->type == JSON_BOOL) {
+            config->report_changes_only = report_changes_val->value.bool_val;
+        } else {
+            config->report_changes_only = 1; // Default fallback
+        }
+
+        // Get include_parent_status from config.include_parent_status
+        json_value_t* include_parent_val = get_nested_value(root, "config.include_parent_status");
+        if (include_parent_val && include_parent_val->type == JSON_BOOL) {
+            config->include_parent_status = include_parent_val->value.bool_val;
+        } else {
+            config->include_parent_status = 1; // Default fallback
+        }
+
+        json_free(root);
+    } else {
+        // Fallback to hardcoded defaults if JSON loading fails
+        config->repo_path = strdup("/home/owner/git/serverGenesis");
+        char* cache_path = expandvars("${XDG_CACHE_HOME:-~/.cache}/repowatch/git-submodules.cache");
+        config->status_cache = cache_path ? cache_path : strdup("/tmp/git-submodules.cache");
+        config->max_depth = 3;
+        config->check_interval = 1;
+        config->cache_status = 1;
+        config->report_changes_only = 1;
+        config->include_parent_status = 1;
+    }
 
     return config;
 }

@@ -889,6 +889,7 @@ static int file_tree_add_path(file_tree_node_t* root, const char* filepath) {
                 free(path_copy);
                 return -1;
             }
+            token = next_token;  // Update token for next iteration
         }
     }
 

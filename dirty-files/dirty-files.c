@@ -20,6 +20,8 @@ typedef struct {
     dirty_repo_t* repos;
     size_t count;
     size_t capacity;
+    char** submodule_paths;  // List of submodule paths to filter out
+    size_t submodule_count;
 } dirty_collection_t;
 
 // Initialize dirty collection
@@ -34,7 +36,73 @@ dirty_collection_t* dirty_collection_init() {
         return NULL;
     }
 
+    collection->submodule_paths = NULL;
+    collection->submodule_count = 0;
+
     return collection;
+}
+
+// Check if a path is a submodule
+int is_submodule_path(dirty_collection_t* collection, const char* path) {
+    for (size_t i = 0; i < collection->submodule_count; i++) {
+        if (strcmp(collection->submodule_paths[i], path) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Add submodule path to collection
+void add_submodule_path(dirty_collection_t* collection, const char* path) {
+    // Check if already exists
+    if (is_submodule_path(collection, path)) return;
+
+    // Resize array
+    char** new_paths = realloc(collection->submodule_paths,
+                              (collection->submodule_count + 1) * sizeof(char*));
+    if (!new_paths) return;
+
+    collection->submodule_paths = new_paths;
+    collection->submodule_paths[collection->submodule_count] = strdup(path);
+    collection->submodule_count++;
+}
+
+// Collect all submodule paths by reading .gitmodules file
+void collect_submodule_paths(dirty_collection_t* collection, const char* repo_path) {
+    char gitmodules_path[2048];
+    snprintf(gitmodules_path, sizeof(gitmodules_path), "%s/.gitmodules", repo_path);
+
+    FILE* fp = fopen(gitmodules_path, "r");
+    if (!fp) {
+        // No .gitmodules file, no submodules
+        return;
+    }
+
+    char line[1024];
+    int in_submodule_section = 0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        // Remove trailing newline
+        char* newline = strchr(line, '\n');
+        if (newline) *newline = '\0';
+
+        // Check for submodule section start
+        if (strstr(line, "[submodule ")) {
+            in_submodule_section = 1;
+            continue;
+        }
+
+        // If we're in a submodule section, look for path
+        if (in_submodule_section && strstr(line, "path = ")) {
+            char* path_start = strstr(line, "path = ") + 7; // Skip "path = "
+            if (path_start) {
+                add_submodule_path(collection, path_start);
+            }
+            in_submodule_section = 0; // Reset for next submodule
+        }
+    }
+
+    fclose(fp);
 }
 
 // Add dirty repository to collection
@@ -70,7 +138,7 @@ void add_dirty_file(dirty_repo_t* repo, const char* filename) {
 }
 
 // Get git status for dirty files in a specific repository
-void get_dirty_files(dirty_repo_t* repo) {
+void get_dirty_files(dirty_collection_t* collection, dirty_repo_t* repo) {
     char cmd[2048];
     FILE* fp;
     char buffer[1024];
@@ -99,8 +167,10 @@ void get_dirty_files(dirty_repo_t* repo) {
             char* newline = strchr(filename, '\n');
             if (newline) *newline = '\0';
 
-            // Add to dirty files list
-            add_dirty_file(repo, filename);
+            // Skip submodule directories - we don't want to show them as "files"
+            if (!is_submodule_path(collection, filename)) {
+                add_dirty_file(repo, filename);
+            }
         }
     }
 
@@ -157,9 +227,9 @@ void parse_git_submodules_report(dirty_collection_t* collection, const char* rep
             }
         }
 
-        // If repository is dirty, add it to our collection
-        if (!is_clean && repo_name && repo_path) {
-            printf("Found dirty repo: %s at %s\n", repo_name, repo_path);
+        // Add repository to our collection (we'll check for dirty files regardless of is_clean flag)
+        if (repo_name && repo_path) {
+            printf("Found repo: %s at %s (%s)\n", repo_name, repo_path, is_clean ? "clean" : "dirty");
             add_dirty_repo(collection, repo_path, repo_name);
         }
     }
@@ -311,6 +381,13 @@ void dirty_collection_cleanup(dirty_collection_t* collection) {
             free(repo->dirty_files);
         }
         free(collection->repos);
+
+        // Cleanup submodule paths
+        for (size_t i = 0; i < collection->submodule_count; i++) {
+            free(collection->submodule_paths[i]);
+        }
+        free(collection->submodule_paths);
+
         free(collection);
     }
 }
@@ -328,15 +405,39 @@ int main(int argc, char* argv[]) {
     // Parse git-submodules report to find dirty repositories
     parse_git_submodules_report(collection, "./git-submodules.report");
 
-    printf("Found %zu dirty repositories from git-submodules report\n", collection->count);
+    // Collect all submodule paths for filtering
+    collect_submodule_paths(collection, ".");
 
-    // For each dirty repository, get the specific dirty files
+    printf("Found %zu dirty repositories from git-submodules report\n", collection->count);
+    printf("Collected %zu submodule paths for filtering\n", collection->submodule_count);
+
+    // For each repository, get the specific dirty files
     for (size_t i = 0; i < collection->count; i++) {
         dirty_repo_t* repo = &collection->repos[i];
         printf("Analyzing dirty files in: %s\n", repo->repo_name);
-        get_dirty_files(repo);
+        get_dirty_files(collection, repo);
         printf("  Found %zu dirty files\n", repo->file_count);
     }
+
+    // Filter out repositories with no dirty files
+    size_t write_idx = 0;
+    for (size_t i = 0; i < collection->count; i++) {
+        if (collection->repos[i].file_count > 0) {
+            if (write_idx != i) {
+                collection->repos[write_idx] = collection->repos[i];
+            }
+            write_idx++;
+        } else {
+            // Free the repository that has no dirty files
+            free(collection->repos[i].repo_path);
+            free(collection->repos[i].repo_name);
+            for (size_t j = 0; j < collection->repos[i].file_count; j++) {
+                free(collection->repos[i].dirty_files[j]);
+            }
+            free(collection->repos[i].dirty_files);
+        }
+    }
+    collection->count = write_idx;
 
     // Generate JSON report
     generate_json_report(collection);

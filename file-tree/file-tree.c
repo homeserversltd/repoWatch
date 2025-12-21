@@ -133,6 +133,51 @@ int load_config(file_tree_orchestrator_t* orch) {
     return 0;
 }
 
+// Truncate filename only if longer than 32 characters, showing first 24 + ellipsis + extension
+char* truncate_filename(const char* filename, int is_file) {
+    size_t len = strlen(filename);
+
+    // If it's a directory or filename is 32 chars or less, return as-is
+    if (!is_file || len <= 32) {
+        return strdup(filename);
+    }
+
+    // Find the last dot for file extension
+    const char* ext_start = strrchr(filename, '.');
+    char* result;
+
+    if (ext_start && ext_start != filename) {
+        // Has extension - calculate how much of the filename we can keep
+        size_t ext_len = strlen(ext_start); // includes the dot
+        size_t available_for_name = 24 - 3 - ext_len; // 24 total - 3 for "..." - ext length
+
+        if (available_for_name < 1) {
+            // Not enough space, take first char + ... + extension
+            available_for_name = 1;
+        }
+
+        result = malloc(available_for_name + 3 + ext_len + 1); // name + "..." + ext + null
+        if (result) {
+            size_t name_len = len - ext_len; // length of name without extension
+            size_t copy_len = available_for_name < name_len ? available_for_name : name_len;
+            strncpy(result, filename, copy_len);
+            result[copy_len] = '\0';
+            strcat(result, "...");
+            strcat(result, ext_start);
+        }
+    } else {
+        // No extension - just take first 24 chars + "..."
+        result = malloc(25); // 24 + "..." + null
+        if (result) {
+            strncpy(result, filename, 24);
+            result[24] = '\0';
+            strcat(result, "...");
+        }
+    }
+
+    return result ? result : strdup(filename);
+}
+
 // Print tree node with proper indentation
 void print_tree_node(file_tree_node_t* node, int depth, int is_last, const char* prefix,
                      const file_tree_config_t* config, int* current_row, int max_height) {
@@ -145,12 +190,14 @@ void print_tree_node(file_tree_node_t* node, int depth, int is_last, const char*
         printf("%s", is_last ? config->tree_symbols.last_branch : config->tree_symbols.branch);
     }
 
-    // Print node name
+    // Print node name with truncation
+    char* display_name = truncate_filename(node->name, node->is_file);
     if (node->is_file) {
-        printf("%s\n", node->name);
+        printf("%s\n", display_name);
     } else {
-        printf("%s/\n", node->name);
+        printf("%s/\n", display_name);
     }
+    free(display_name);
     (*current_row)++;
 
     if (*current_row >= max_height - 1) return;

@@ -58,6 +58,9 @@ json_value_t* json_parse_file(const char* filename);
 json_value_t* json_parse_string(const char* json_str);
 void json_free(json_value_t* value);
 
+// JSON value access functions
+json_value_t* get_nested_value(json_value_t* root, const char* key_path);
+
 // JSON writing functions
 char* json_stringify(json_value_t* value);
 int json_write_file(const char* filename, json_value_t* value);

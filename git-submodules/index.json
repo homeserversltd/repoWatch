@@ -15,7 +15,7 @@
     "parallel": false
   },
   "config": {
-    "max_depth": 3,
+    "max_depth": 6,
     "check_interval": 1,
     "cache_status": true,
     "report_changes_only": true,
