@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Git Submodules Monitor",
+    "description": "Recursively monitors git submodules and reports status of all child repositories"
+  },
+  "paths": {
+    "repo_path": "/home/owner/git/serverGenesis",
+    "status_cache": "${XDG_CACHE_HOME:-~/.cache}/repowatch/git-submodules.cache"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "max_depth": 3,
+    "check_interval": 1,
+    "cache_status": true,
+    "report_changes_only": true,
+    "include_parent_status": true
+  }
+}

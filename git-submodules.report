@@ -1,0 +1,60 @@
+Git Submodules Status Report
+=============================
+Root Repository: /home/owner/git/serverGenesis
+Timestamp: 1766328065
+Total Repositories Checked: 5
+
+Repository: root
+Path: /home/owner/git/serverGenesis
+Status: DIRTY
+Changes:
+ M .cursor/rules/rightnow.mdc
+ M bin/cursor-newline-fix
+ M homerchy
+ M homeserver
+ M repoWatch
+?? bin/cursor-newline-fix.py
+?? git-submodules.report
+
+Repository: arch-install
+Path: /home/owner/git/serverGenesis/arch-install
+Status: CLEAN
+Changes: None
+
+Repository: repoWatch
+Path: /home/owner/git/serverGenesis/repoWatch
+Status: DIRTY
+Changes:
+ M index.json
+ M main
+ M main.c
+?? LICENSE
+?? dirty-files/
+?? git-submodules/
+?? json-utils/test-parse
+
+Repository: homeserver
+Path: /home/owner/git/serverGenesis/homeserver
+Status: DIRTY
+Changes:
+?? howToHomeServer/
+?? initialization/flask/inject/src/config/themes/christmas.json
+
+Repository: homerchy
+Path: /home/owner/git/serverGenesis/homerchy
+Status: DIRTY
+Changes:
+ M controller/__init__.py
+ M controller/__main__.py
+ M controller/utils.py
+ M controller/vm.py
+ M install/preflight/tty-control.py
+ M install/utils/tty_display.py
+ M iso-builder/configs/airootfs/root/.automated_script.sh
+ M isoprep/index/package_management/__init__.py
+ M isoprep/index/prepare/__init__.py
+ M isoprep/index/profile_assembly/__init__.py
+
+Summary:
+Clean repositories: 1
+Dirty repositories: 4

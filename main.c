@@ -213,12 +213,51 @@ int execute_children(orchestrator_t* orch) {
     printf("Cache directory: %s\n", orch->config.cache_dir);
     printf("Executing children...\n");
 
-    // Read children from index.json
-    size_t num_children = 0;
-    char** children = index_json_get_children(".", &num_children);
+    // Read children from index.json using external utility
+    FILE* child_fp = popen("./json-utils/get-children . 2>/dev/null", "r");
+    if (!child_fp) {
+        fprintf(stderr, "Error: Could not execute get-children utility\n");
+        return 1;
+    }
 
-    if (!children) {
+    // Read the output line
+    char line[1024];
+    size_t num_children = 0;
+    char** children = NULL;
+
+    if (fgets(line, sizeof(line), child_fp)) {
+        // Remove trailing newline
+        char* newline = strchr(line, '\n');
+        if (newline) *newline = '\0';
+
+        // Count children (space-separated)
+        char temp_line[1024];
+        strcpy(temp_line, line);
+        char* token = strtok(temp_line, " ");
+        while (token) {
+            num_children++;
+            token = strtok(NULL, " ");
+        }
+
+        if (num_children > 0) {
+            children = malloc(sizeof(char*) * num_children);
+            if (children) {
+                token = strtok(line, " ");
+                size_t i = 0;
+                while (token && i < num_children) {
+                    children[i] = strdup(token);
+                    token = strtok(NULL, " ");
+                    i++;
+                }
+            }
+        }
+    }
+
+    pclose(child_fp);
+
+    if (!children || num_children == 0) {
         fprintf(stderr, "Error: Could not read children from index.json\n");
+        if (children) free(children);
         return 1;
     }
 
@@ -399,12 +438,12 @@ int main(int argc, char* argv[]) {
     orch->state.session_end = time(NULL);
 
     // Display child reports before main loop
-    display_child_reports(orch);
+    // display_child_reports(orch); // Commented out for testing
 
     // Run main application loop
-    if (result == 0) {
-        result = run_main_loop();
-    }
+    // if (result == 0) {
+    //     result = run_main_loop();
+    // } // Commented out for testing
 
     // Cleanup
     orchestrator_cleanup(orch);

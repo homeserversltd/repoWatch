@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Dirty Files Reporter",
+    "description": "Analyzes dirty submodules and reports specific files that are making repositories dirty"
+  },
+  "paths": {
+    "repo_path": "/home/owner/git/serverGenesis"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "max_file_count": 100,
+    "show_file_types": true,
+    "include_untracked": true
+  }
+}
