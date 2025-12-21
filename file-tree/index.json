@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "File Tree Display",
+    "description": "Terminal UI for displaying dirty files organized in tree structure"
+  },
+  "paths": {
+    "report_file": "../dirty-files-report.json"
+  },
+  "children": [],
+  "execution": {
+    "mode": "standalone",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "title": "File Tree Analysis",
+    "exit_keys": "qQ",
+    "refresh_interval": 5000,
+    "max_display_files": 50,
+    "tree_symbols": {
+      "branch": "├── ",
+      "last_branch": "└── ",
+      "vertical": "│   ",
+      "space": "    "
+    }
+  }
+}

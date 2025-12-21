@@ -804,3 +804,212 @@ int json_object_set(json_value_t* object, const char* key, json_value_t* value) 
 
     return 0;
 }
+
+// File tree processing functions
+
+// Create a new file tree node
+static file_tree_node_t* file_tree_node_create(const char* name, int is_file) {
+    file_tree_node_t* node = calloc(1, sizeof(file_tree_node_t));
+    if (!node) return NULL;
+
+    node->name = strdup(name);
+    node->is_file = is_file;
+    node->children = NULL;
+    node->child_count = 0;
+
+    return node;
+}
+
+// Add a child to a file tree node
+static int file_tree_node_add_child(file_tree_node_t* parent, file_tree_node_t* child) {
+    parent->children = realloc(parent->children, sizeof(file_tree_node_t*) * (parent->child_count + 1));
+    if (!parent->children) return -1;
+
+    parent->children[parent->child_count++] = child;
+    return 0;
+}
+
+// Find or create a child directory node
+static file_tree_node_t* file_tree_find_or_create_dir(file_tree_node_t* parent, const char* dirname) {
+    // Look for existing directory
+    for (size_t i = 0; i < parent->child_count; i++) {
+        if (!parent->children[i]->is_file && strcmp(parent->children[i]->name, dirname) == 0) {
+            return parent->children[i];
+        }
+    }
+
+    // Create new directory
+    file_tree_node_t* dir_node = file_tree_node_create(dirname, 0);
+    if (!dir_node) return NULL;
+
+    if (file_tree_node_add_child(parent, dir_node) != 0) {
+        file_tree_node_free(dir_node);
+        return NULL;
+    }
+
+    return dir_node;
+}
+
+// Add a file path to the tree structure
+static int file_tree_add_path(file_tree_node_t* root, const char* filepath) {
+    if (!filepath || !*filepath) {
+        // Empty path - add as direct file
+        file_tree_node_t* file_node = file_tree_node_create(filepath, 1);
+        if (!file_node) return -1;
+        return file_tree_node_add_child(root, file_node);
+    }
+
+    char* path_copy = strdup(filepath);
+    if (!path_copy) return -1;
+
+    char* saveptr;
+    char* token = strtok_r(path_copy, "/", &saveptr);
+    file_tree_node_t* current = root;
+
+    // Process directory parts
+    while (token) {
+        char* next_token = strtok_r(NULL, "/", &saveptr);
+        if (!next_token) {
+            // This is the filename
+            file_tree_node_t* file_node = file_tree_node_create(token, 1);
+            if (!file_node) {
+                free(path_copy);
+                return -1;
+            }
+            if (file_tree_node_add_child(current, file_node) != 0) {
+                file_tree_node_free(file_node);
+                free(path_copy);
+                return -1;
+            }
+            break;
+        } else {
+            // This is a directory
+            current = file_tree_find_or_create_dir(current, token);
+            if (!current) {
+                free(path_copy);
+                return -1;
+            }
+        }
+    }
+
+    free(path_copy);
+    return 0;
+}
+
+// Process a repository's files into a tree
+static file_tree_node_t* file_tree_build_repo_tree(char** files, size_t file_count) {
+    file_tree_node_t* root = file_tree_node_create("", 0); // Root has no name
+    if (!root) return NULL;
+
+    for (size_t i = 0; i < file_count; i++) {
+        if (file_tree_add_path(root, files[i]) != 0) {
+            file_tree_node_free(root);
+            return NULL;
+        }
+    }
+
+    return root;
+}
+
+// Main function to process dirty files report into tree structure
+file_tree_report_t* json_process_dirty_files_to_tree(json_value_t* dirty_files_report) {
+    if (!dirty_files_report || dirty_files_report->type != JSON_OBJECT) {
+        return NULL;
+    }
+
+    file_tree_report_t* report = calloc(1, sizeof(file_tree_report_t));
+    if (!report) return NULL;
+
+    // Find repositories array
+    json_object_t* root_obj = dirty_files_report->value.obj_val;
+    json_value_t* repos_val = NULL;
+
+    for (size_t i = 0; i < root_obj->count; i++) {
+        if (strcmp(root_obj->entries[i]->key, "repositories") == 0) {
+            repos_val = root_obj->entries[i]->value;
+            break;
+        }
+    }
+
+    if (!repos_val || repos_val->type != JSON_ARRAY) {
+        free(report);
+        return NULL;
+    }
+
+    json_array_t* repos_arr = repos_val->value.arr_val;
+    report->repo_count = repos_arr->count;
+    report->repos = calloc(repos_arr->count, sizeof(file_tree_repo_t));
+    if (!report->repos) {
+        free(report);
+        return NULL;
+    }
+
+    // Process each repository
+    for (size_t i = 0; i < repos_arr->count; i++) {
+        json_value_t* repo_obj = repos_arr->items[i];
+        if (repo_obj->type != JSON_OBJECT) continue;
+
+        file_tree_repo_t* repo = &report->repos[i];
+        json_object_t* repo_json = repo_obj->value.obj_val;
+
+        // Extract repo name and path
+        for (size_t j = 0; j < repo_json->count; j++) {
+            json_entry_t* entry = repo_json->entries[j];
+
+            if (strcmp(entry->key, "name") == 0 && entry->value->type == JSON_STRING) {
+                repo->repo_name = strdup(entry->value->value.str_val);
+            } else if (strcmp(entry->key, "path") == 0 && entry->value->type == JSON_STRING) {
+                repo->repo_path = strdup(entry->value->value.str_val);
+            } else if (strcmp(entry->key, "dirty_files") == 0 && entry->value->type == JSON_ARRAY) {
+                json_array_t* files_arr = entry->value->value.arr_val;
+                char** files = calloc(files_arr->count, sizeof(char*));
+                size_t file_count = 0;
+
+                for (size_t k = 0; k < files_arr->count; k++) {
+                    if (files_arr->items[k]->type == JSON_STRING) {
+                        files[file_count++] = strdup(files_arr->items[k]->value.str_val);
+                    }
+                }
+
+                if (file_count > 0) {
+                    repo->root = file_tree_build_repo_tree(files, file_count);
+                }
+
+                // Free temporary files array
+                for (size_t k = 0; k < file_count; k++) {
+                    free(files[k]);
+                }
+                free(files);
+            }
+        }
+    }
+
+    return report;
+}
+
+// Free file tree node recursively
+void file_tree_node_free(file_tree_node_t* node) {
+    if (!node) return;
+
+    for (size_t i = 0; i < node->child_count; i++) {
+        file_tree_node_free(node->children[i]);
+    }
+
+    free(node->children);
+    free(node->name);
+    free(node);
+}
+
+// Free file tree report
+void file_tree_free(file_tree_report_t* report) {
+    if (!report) return;
+
+    for (size_t i = 0; i < report->repo_count; i++) {
+        free(report->repos[i].repo_name);
+        free(report->repos[i].repo_path);
+        file_tree_node_free(report->repos[i].root);
+    }
+
+    free(report->repos);
+    free(report);
+}

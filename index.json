@@ -12,7 +12,7 @@
   "children": [
     "git-submodules",
     "dirty-files",
-    "dirty-files-tui"
+    "file-tree"
   ],
   "execution": {
     "mode": "parallel",

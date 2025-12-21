@@ -139,7 +139,7 @@ char* expandvars(const char* input) {
 // Load configuration from index.json
 int load_config(dirty_files_tui_orchestrator_t* orch) {
     // Load JSON config
-    json_value_t* config = json_parse_file("dirty-files-tui/index.json");
+    json_value_t* config = json_parse_file("index.json");
     if (!config || config->type != JSON_OBJECT) {
         fprintf(stderr, "Failed to load config\n");
         return -1;
@@ -266,7 +266,43 @@ void dirty_files_tui_cleanup(dirty_files_tui_orchestrator_t* orch) {
     }
 }
 
-// Draw the TUI overlay with dirty files data
+// Extract just the filename from a path
+const char* extract_filename(const char* filepath) {
+    const char* last_slash = strrchr(filepath, '/');
+    return last_slash ? last_slash + 1 : filepath;
+}
+
+// Get a better repository name (extract from path if name is generic)
+const char* get_display_repo_name(const char* repo_name, const char* repo_path) {
+    // If the repo name is "root", try to get a better name from the path
+    if (strcmp(repo_name, "root") == 0) {
+        const char* last_slash = strrchr(repo_path, '/');
+        if (last_slash && strlen(last_slash + 1) > 0) {
+            return last_slash + 1;
+        }
+    }
+    return repo_name;
+}
+
+// Truncate filename with ellipsis if too long
+void truncate_filename(const char* filename, char* buffer, size_t buffer_size, int max_width) {
+    size_t len = strlen(filename);
+    if (len <= max_width) {
+        strcpy(buffer, filename);
+        return;
+    }
+
+    // Reserve space for "..."
+    int ellipsis_len = 3;
+    int copy_len = max_width - ellipsis_len;
+    if (copy_len < 1) copy_len = 1;
+
+    strncpy(buffer, filename, copy_len);
+    buffer[copy_len] = '\0';
+    strcat(buffer, "...");
+}
+
+// Draw the TUI overlay with dirty files data - compact, borderless design
 void draw_tui_overlay(dirty_files_tui_orchestrator_t* orch) {
     int width, height;
     get_terminal_size(&width, &height);
@@ -274,110 +310,86 @@ void draw_tui_overlay(dirty_files_tui_orchestrator_t* orch) {
     clear_screen();
     move_cursor(1, 1);
 
-    // Draw border
+    // Set color for header
     set_color(36); // Cyan color
     set_bold();
 
-    // Top border
-    printf("┌");
-    for (int i = 0; i < width - 2; i++) printf("─");
-    printf("┐\n");
+    int current_row = 1;
 
-    // Side borders with content
-    int current_row = 2;
-
-    // Title
-    printf("│");
-    int title_len = strlen(orch->config.title);
-    int padding = (width - 2 - title_len) / 2;
-    for (int i = 0; i < padding; i++) printf(" ");
-    printf("%s", orch->config.title);
-    for (int i = 0; i < width - 2 - padding - title_len; i++) printf(" ");
-    printf("│\n");
+    // Title at top (left-aligned, no padding)
+    printf("%s\n", orch->config.title);
     current_row++;
 
-    // Summary
+    // Summary line (compact)
     if (current_row < height - 1) {
-        printf("│");
-        char summary[256];
-        snprintf(summary, sizeof(summary), "Total: %d dirty repos, %d dirty files",
-                 orch->report.total_dirty_repositories, orch->report.total_dirty_files);
-        int summary_len = strlen(summary);
-        padding = (width - 2 - summary_len) / 2;
-        for (int i = 0; i < padding; i++) printf(" ");
-        printf("%s", summary);
-        for (int i = 0; i < width - 2 - padding - summary_len; i++) printf(" ");
-        printf("│\n");
+        reset_colors();
+        printf("Total: %d dirty repos, %d dirty files\n",
+               orch->report.total_dirty_repositories, orch->report.total_dirty_files);
         current_row++;
     }
 
-    // Repository list
-    for (size_t i = 0; i < orch->report.repo_count && current_row < height - 3; i++) {
+    reset_colors();
+
+    // Display files grouped by repository with headers
+    for (size_t i = 0; i < orch->report.repo_count && current_row < height - 1; i++) {
         dirty_repo_t* repo = &orch->report.repositories[i];
 
+        // Calculate maximum content width for this repository
+        int max_content_width = 0;
+        for (size_t j = 0; j < repo->file_count; j++) {
+            const char* filename = extract_filename(repo->dirty_files[j]);
+            int filename_len = strlen(filename);
+            if (filename_len > max_content_width) {
+                max_content_width = filename_len;
+            }
+        }
+
+        // Repository header (centered over content)
         if (current_row < height - 1) {
-            printf("│");
-            char repo_info[256];
-            snprintf(repo_info, sizeof(repo_info), "%s: %d files", repo->name, repo->dirty_file_count);
-            int repo_len = strlen(repo_info);
-            padding = 2;
-            for (int i = 0; i < padding; i++) printf(" ");
-            printf("%s", repo_info);
-            for (int i = 0; i < width - 2 - padding - repo_len; i++) printf(" ");
-            printf("│\n");
+            set_color(36); // Cyan color
+            set_bold();
+
+            const char* display_name = get_display_repo_name(repo->name, repo->path);
+            char header[256];
+            snprintf(header, sizeof(header), "Repository: %s", display_name);
+            int header_len = strlen(header);
+            int content_width = (max_content_width > header_len) ? max_content_width : header_len;
+            int padding = (width - content_width) / 2;
+            if (padding < 0) padding = 0;
+
+            for (int p = 0; p < padding; p++) printf(" ");
+            printf("%s\n", header);
+
+            reset_colors();
             current_row++;
         }
 
-        // Show some files
-        int files_to_show = repo->file_count > 3 ? 3 : repo->file_count;
-        for (int j = 0; j < files_to_show && current_row < height - 3; j++) {
-            printf("│");
-            padding = 4;
-            for (int i = 0; i < padding; i++) printf(" ");
-            printf("• %s", repo->dirty_files[j]);
-            for (int i = 0; i < width - 2 - padding - 2 - (int)strlen(repo->dirty_files[j]); i++) printf(" ");
-            printf("│\n");
+        // Display all files from this repository
+        for (size_t j = 0; j < repo->file_count && current_row < height - 1; j++) {
+            const char* filename = extract_filename(repo->dirty_files[j]);
+            char truncated_name[256];
+            truncate_filename(filename, truncated_name, sizeof(truncated_name), width - 1);
+
+            printf("%s\n", truncated_name);
             current_row++;
         }
 
-        if (repo->file_count > 3 && current_row < height - 3) {
-            printf("│");
-            padding = 4;
-            for (int i = 0; i < padding; i++) printf(" ");
-            char more_msg[64];
-            snprintf(more_msg, sizeof(more_msg), "... and %zu more", repo->file_count - 3);
-            printf("%s", more_msg);
-            for (int i = 0; i < width - 2 - padding - (int)strlen(more_msg); i++) printf(" ");
-            printf("│\n");
+        // Add a blank line between repositories (except for the last one)
+        if (i < orch->report.repo_count - 1 && current_row < height - 1) {
+            printf("\n");
             current_row++;
         }
     }
 
-    // Fill remaining space
-    while (current_row < height - 2) {
-        printf("│");
-        for (int i = 0; i < width - 2; i++) printf(" ");
-        printf("│\n");
+    // Fill remaining space with empty lines until we reach the footer position
+    while (current_row < height - 1) {
+        printf("\n");
         current_row++;
     }
 
-    // Instructions
-    if (current_row < height - 1) {
-        printf("│");
-        const char* instr = "Press Q to exit, R to refresh";
-        int instr_len = strlen(instr);
-        padding = (width - 2 - instr_len) / 2;
-        for (int i = 0; i < padding; i++) printf(" ");
-        printf("%s", instr);
-        for (int i = 0; i < width - 2 - padding - instr_len; i++) printf(" ");
-        printf("│\n");
-        current_row++;
-    }
-
-    // Bottom border
-    printf("└");
-    for (int i = 0; i < width - 2; i++) printf("─");
-    printf("┘\n");
+    // Footer at bottom (left-aligned)
+    set_color(36); // Cyan color
+    printf("Press Q to exit, press R to refresh");
 
     reset_colors();
     fflush(stdout);
