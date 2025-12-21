@@ -479,6 +479,30 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Parse command line arguments
+    char* committed_not_pushed_mode = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--committed-not-pushed-tree") == 0) {
+            committed_not_pushed_mode = "tree";
+        } else if (strcmp(argv[i], "--committed-not-pushed-flat") == 0) {
+            committed_not_pushed_mode = "flat";
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printf("Usage: %s [options]\n", argv[0]);
+            printf("Options:\n");
+            printf("  --committed-not-pushed-tree    Display committed-not-pushed in tree mode\n");
+            printf("  --committed-not-pushed-flat    Display committed-not-pushed in flat mode\n");
+            printf("  --help, -h                     Show this help message\n");
+            return 0;
+        }
+    }
+
+    // Set environment variable for committed-not-pushed mode if specified
+    if (committed_not_pushed_mode) {
+        char env_var[256];
+        snprintf(env_var, sizeof(env_var), "COMMITTED_NOT_PUSHED_MODE=%s", committed_not_pushed_mode);
+        putenv(strdup(env_var));
+    }
+
     // Initialize orchestrator (infinite index pattern)
     orchestrator_t* orch = orchestrator_init(module_path);
     if (!orch) {

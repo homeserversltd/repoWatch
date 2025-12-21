@@ -16,6 +16,11 @@
   "config": {
     "max_commit_count": 50,
     "show_commit_hashes": true,
-    "include_branch_info": true
+    "include_branch_info": true,
+    "display_mode": "flat",
+    "tree_prefix": "├── ",
+    "tree_last_prefix": "└── ",
+    "tree_indent": "│   ",
+    "max_display_files": 50
   }
 }

@@ -6,6 +6,134 @@
 #include <time.h>
 #include "../json-utils/json-utils.h"
 
+// View mode enumeration
+typedef enum {
+    VIEW_FLAT,
+    VIEW_TREE
+} view_mode_t;
+
+// Configuration for committed-not-pushed module
+typedef struct {
+    char* repo_path;
+    int max_commit_count;
+    int show_commit_hashes;
+    int include_branch_info;
+    char* display_mode;
+    char* tree_prefix;
+    char* tree_last_prefix;
+    char* tree_indent;
+    int max_display_files;
+    view_mode_t current_view;
+} committed_not_pushed_config_t;
+
+// Forward declarations
+char* get_nested_string(json_value_t* root, const char* key_path, const char* default_value);
+int get_nested_int(json_value_t* root, const char* key_path, int default_value);
+char* expandvars(const char* input);
+char* truncate_filename(const char* filename, int is_file);
+json_value_t* get_nested_value(json_value_t* root, const char* key_path);
+
+// Load configuration from index.json
+committed_not_pushed_config_t* load_config(const char* module_path) {
+    char index_path[1024];
+    snprintf(index_path, sizeof(index_path), "%s/index.json", module_path);
+
+    json_value_t* config_json = json_parse_file(index_path);
+    if (!config_json) {
+        fprintf(stderr, "Failed to load configuration from %s\n", index_path);
+        return NULL;
+    }
+
+    committed_not_pushed_config_t* config = calloc(1, sizeof(committed_not_pushed_config_t));
+    if (!config) {
+        json_free(config_json);
+        return NULL;
+    }
+
+    // Load config values with defaults
+    config->repo_path = expandvars(get_nested_string(config_json, "paths.repo_path", "/home/owner/git/serverGenesis"));
+    config->max_commit_count = get_nested_int(config_json, "config.max_commit_count", 50);
+    config->show_commit_hashes = get_nested_int(config_json, "config.show_commit_hashes", 1);
+    config->include_branch_info = get_nested_int(config_json, "config.include_branch_info", 1);
+    config->display_mode = expandvars(get_nested_string(config_json, "config.display_mode", "flat"));
+    config->tree_prefix = expandvars(get_nested_string(config_json, "config.tree_prefix", "├── "));
+    config->tree_last_prefix = expandvars(get_nested_string(config_json, "config.tree_last_prefix", "└── "));
+    config->tree_indent = expandvars(get_nested_string(config_json, "config.tree_indent", "│   "));
+    config->max_display_files = get_nested_int(config_json, "config.max_display_files", 50);
+
+    // Check for environment variable override
+    char* env_mode = getenv("COMMITTED_NOT_PUSHED_MODE");
+    if (env_mode) {
+        free(config->display_mode);
+        config->display_mode = strdup(env_mode);
+    }
+
+    // Set view mode based on display_mode string
+    if (strcmp(config->display_mode, "tree") == 0) {
+        config->current_view = VIEW_TREE;
+    } else {
+        config->current_view = VIEW_FLAT;
+    }
+
+    json_free(config_json);
+    return config;
+}
+
+
+// Helper function to get string value from nested JSON path
+char* get_nested_string(json_value_t* root, const char* key_path, const char* default_value) {
+    json_value_t* value = get_nested_value(root, key_path);
+    if (value && value->type == JSON_STRING) {
+        return strdup(value->value.str_val);
+    }
+    return default_value ? strdup(default_value) : NULL;
+}
+
+// Helper function to get int value from nested JSON path
+int get_nested_int(json_value_t* root, const char* key_path, int default_value) {
+    json_value_t* value = get_nested_value(root, key_path);
+    if (value && value->type == JSON_NUMBER) {
+        return (int)value->value.num_val;
+    }
+    return default_value;
+}
+
+// Custom environment variable expansion (simple version)
+char* expandvars(const char* input) {
+    if (!input) return NULL;
+    // For now, just return a copy. Could be enhanced to handle ${VAR} syntax
+    return strdup(input);
+}
+
+// Simple implementation of get_nested_value for basic key access
+json_value_t* get_nested_value(json_value_t* root, const char* key_path) {
+    if (!root || !key_path || root->type != JSON_OBJECT) {
+        return NULL;
+    }
+
+    // For now, just handle simple key access (no dot notation)
+    json_object_t* obj = root->value.obj_val;
+    for (size_t i = 0; i < obj->count; i++) {
+        if (strcmp(obj->entries[i]->key, key_path) == 0) {
+            return obj->entries[i]->value;
+        }
+    }
+
+    return NULL;
+}
+
+// Helper function to get display repo name (similar to interactive-dirty-files-tui)
+const char* get_display_repo_name(const char* repo_name, const char* repo_path) {
+    // If the repo name is "root", try to get a better name from the path
+    if (strcmp(repo_name, "root") == 0) {
+        const char* last_slash = strrchr(repo_path, '/');
+        if (last_slash && strlen(last_slash + 1) > 0) {
+            return last_slash + 1;
+        }
+    }
+    return repo_name;
+}
+
 // Structure for committed-not-pushed information
 typedef struct {
     char* repo_path;
@@ -25,6 +153,154 @@ typedef struct {
     char** submodule_paths;  // List of submodule paths to filter out
     size_t submodule_count;
 } unpushed_collection_t;
+
+// Display results in flat format (current behavior)
+void display_flat_view(unpushed_collection_t* collection, committed_not_pushed_config_t* config) {
+    size_t total_unpushed_repos = 0;
+    size_t total_unpushed_commits = 0;
+
+    // Calculate totals
+    for (size_t i = 0; i < collection->count; i++) {
+        unpushed_repo_t* repo = &collection->repos[i];
+        if (repo->commit_count > 0) {
+            total_unpushed_repos++;
+            total_unpushed_commits += repo->commit_count;
+        }
+    }
+
+    printf("\nCommitted Not Pushed Analysis Summary:\n");
+    printf("  Total repositories with unpushed commits: %zu\n", total_unpushed_repos);
+    printf("  Total unpushed commits: %zu\n", total_unpushed_commits);
+
+    if (total_unpushed_repos > 0) {
+        printf("\nDetailed breakdown:\n");
+        for (size_t i = 0; i < collection->count; i++) {
+            unpushed_repo_t* repo = &collection->repos[i];
+            if (repo->commit_count > 0) {
+                printf("  %s (%s): %zu unpushed commits\n",
+                       repo->repo_name, repo->repo_path, repo->commit_count);
+                for (size_t j = 0; j < repo->commit_count && j < 2; j++) {  // Show first 2 commits
+                    printf("    - %s\n", repo->unpushed_commits[j]);
+
+                    // Show files changed in this commit (up to 5 files)
+                    if (repo->commit_file_counts[j] > 0) {
+                        printf("      Files changed:\n");
+                        size_t max_files = repo->commit_file_counts[j] < 5 ? repo->commit_file_counts[j] : 5;
+                        for (size_t k = 0; k < max_files; k++) {
+                            char* truncated_file = truncate_filename(repo->commit_files[j][k], 1); // 1 = is_file
+                            printf("        • %s\n", truncated_file);
+                            free(truncated_file);
+                        }
+                        if (repo->commit_file_counts[j] > 5) {
+                            printf("        ... and %zu more files\n", repo->commit_file_counts[j] - 5);
+                        }
+                    }
+                }
+                if (repo->commit_count > 2) {
+                    printf("    ... and %zu more commits\n", repo->commit_count - 2);
+                }
+            }
+        }
+    }
+}
+
+// Display results in tree format (similar to interactive-dirty-files-tui)
+void display_tree_view(unpushed_collection_t* collection, committed_not_pushed_config_t* config) {
+    size_t total_unpushed_repos = 0;
+    size_t total_unpushed_commits = 0;
+
+    // Calculate totals
+    for (size_t i = 0; i < collection->count; i++) {
+        unpushed_repo_t* repo = &collection->repos[i];
+        if (repo->commit_count > 0) {
+            total_unpushed_repos++;
+            total_unpushed_commits += repo->commit_count;
+        }
+    }
+
+    // Title
+    printf("Committed Not Pushed Analysis (TREE)\n");
+
+    // Summary line
+    printf("Total: %zu repos with unpushed commits, %zu unpushed commits\n",
+           total_unpushed_repos, total_unpushed_commits);
+
+    // Display repositories as trees
+    for (size_t i = 0; i < collection->count; i++) {
+        unpushed_repo_t* repo = &collection->repos[i];
+        if (repo->commit_count > 0) {
+            // Repository header
+            const char* display_name = get_display_repo_name(repo->repo_name, repo->repo_path);
+            printf("\nRepository: %s\n", display_name);
+
+            // Display commits as tree
+            for (size_t j = 0; j < repo->commit_count; j++) {
+                int is_last_commit = (j == repo->commit_count - 1);
+
+                // Print tree prefix for commit
+                if (is_last_commit) {
+                    printf("%s", config->tree_last_prefix);
+                } else {
+                    printf("%s", config->tree_prefix);
+                }
+
+                // Print commit info (truncated if too long)
+                char commit_line[256];
+                size_t commit_len = strlen(repo->unpushed_commits[j]);
+                if (commit_len > 60) {
+                    strncpy(commit_line, repo->unpushed_commits[j], 57);
+                    commit_line[57] = '\0';
+                    strcat(commit_line, "...");
+                } else {
+                    strcpy(commit_line, repo->unpushed_commits[j]);
+                }
+                printf("%s\n", commit_line);
+
+                // Display files changed in this commit
+                if (repo->commit_file_counts[j] > 0) {
+                    size_t max_files = repo->commit_file_counts[j] < config->max_display_files ?
+                                     repo->commit_file_counts[j] : config->max_display_files;
+
+                    for (size_t k = 0; k < max_files; k++) {
+                        int is_last_file = (k == max_files - 1) && (repo->commit_file_counts[j] <= config->max_display_files);
+
+                        // Print indentation
+                        if (is_last_commit) {
+                            printf("    ");
+                        } else {
+                            printf("%s", config->tree_indent);
+                        }
+
+                        // Print file tree prefix
+                        if (is_last_file) {
+                            printf("%s", config->tree_last_prefix);
+                        } else {
+                            printf("%s", config->tree_prefix);
+                        }
+
+                        // Print file name (truncated if necessary)
+                        char* truncated_file = truncate_filename(repo->commit_files[j][k], 1);
+                        printf("%s\n", truncated_file);
+                        free(truncated_file);
+                    }
+
+                    if (repo->commit_file_counts[j] > config->max_display_files) {
+                        // Print continuation indicator
+                        if (is_last_commit) {
+                            printf("    %s... and %zu more files\n",
+                                   config->tree_last_prefix,
+                                   repo->commit_file_counts[j] - config->max_display_files);
+                        } else {
+                            printf("%s%s... and %zu more files\n",
+                                   config->tree_indent, config->tree_last_prefix,
+                                   repo->commit_file_counts[j] - config->max_display_files);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 // Initialize unpushed collection
 unpushed_collection_t* unpushed_collection_init() {
@@ -394,41 +670,6 @@ void generate_report(unpushed_collection_t* collection) {
     json_write_file("committed-not-pushed-report.json", report);
     printf("Committed-not-pushed analysis report generated\n");
 
-    printf("\nCommitted Not Pushed Analysis Summary:\n");
-    printf("  Total repositories with unpushed commits: %zu\n", total_unpushed_repos);
-    printf("  Total unpushed commits: %zu\n", total_unpushed_commits);
-
-    if (total_unpushed_repos > 0) {
-        printf("\nDetailed breakdown:\n");
-        for (size_t i = 0; i < collection->count; i++) {
-            unpushed_repo_t* repo = &collection->repos[i];
-            if (repo->commit_count > 0) {
-                printf("  %s (%s): %zu unpushed commits\n",
-                       repo->repo_name, repo->repo_path, repo->commit_count);
-                for (size_t j = 0; j < repo->commit_count && j < 2; j++) {  // Show first 2 commits
-                    printf("    - %s\n", repo->unpushed_commits[j]);
-
-                    // Show files changed in this commit (up to 5 files)
-                    if (repo->commit_file_counts[j] > 0) {
-                        printf("      Files changed:\n");
-                        size_t max_files = repo->commit_file_counts[j] < 5 ? repo->commit_file_counts[j] : 5;
-                        for (size_t k = 0; k < max_files; k++) {
-                            char* truncated_file = truncate_filename(repo->commit_files[j][k], 1); // 1 = is_file
-                            printf("        • %s\n", truncated_file);
-                            free(truncated_file);
-                        }
-                        if (repo->commit_file_counts[j] > 5) {
-                            printf("        ... and %zu more files\n", repo->commit_file_counts[j] - 5);
-                        }
-                    }
-                }
-                if (repo->commit_count > 2) {
-                    printf("    ... and %zu more commits\n", repo->commit_count - 2);
-                }
-            }
-        }
-    }
-
     json_free(report);
 }
 
@@ -465,15 +706,57 @@ void unpushed_collection_cleanup(unpushed_collection_t* collection) {
 int main(int argc, char* argv[]) {
     printf("Committed Not Pushed Analyzer starting...\n");
 
+    // Get the module path
+    char module_path[1024];
+    if (!getcwd(module_path, sizeof(module_path))) {
+        fprintf(stderr, "Error: Cannot get current working directory\n");
+        return 1;
+    }
+
+    // Load configuration
+    committed_not_pushed_config_t* config = load_config(module_path);
+    if (!config) {
+        fprintf(stderr, "Failed to load configuration\n");
+        return 1;
+    }
+
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--tree") == 0 || strcmp(argv[i], "-t") == 0) {
+            config->current_view = VIEW_TREE;
+        } else if (strcmp(argv[i], "--flat") == 0 || strcmp(argv[i], "-f") == 0) {
+            config->current_view = VIEW_FLAT;
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printf("Usage: %s [options]\n", argv[0]);
+            printf("Options:\n");
+            printf("  --tree, -t    Display in tree format\n");
+            printf("  --flat, -f    Display in flat format (default)\n");
+            printf("  --help, -h    Show this help message\n");
+            free(config->repo_path);
+            free(config->display_mode);
+            free(config->tree_prefix);
+            free(config->tree_last_prefix);
+            free(config->tree_indent);
+            free(config);
+            return 0;
+        }
+    }
+
     // Initialize collection
     unpushed_collection_t* collection = unpushed_collection_init();
     if (!collection) {
         fprintf(stderr, "Failed to initialize collection\n");
+        free(config->repo_path);
+        free(config->display_mode);
+        free(config->tree_prefix);
+        free(config->tree_last_prefix);
+        free(config->tree_indent);
+        free(config);
         return 1;
     }
 
     // Parse git-submodules report
-    parse_git_submodules_report(collection, "./git-submodules.report");
+    parse_git_submodules_report(collection, "../git-submodules.report");
 
     // Analyze each repository for unpushed commits
     for (size_t i = 0; i < collection->count; i++) {
@@ -486,10 +769,23 @@ int main(int argc, char* argv[]) {
     // Generate report
     generate_report(collection);
 
+    // Display results based on view mode
+    if (config->current_view == VIEW_FLAT) {
+        display_flat_view(collection, config);
+    } else {
+        display_tree_view(collection, config);
+    }
+
     printf("Committed Not Pushed Analyzer completed\n");
 
     // Cleanup
     unpushed_collection_cleanup(collection);
+    free(config->repo_path);
+    free(config->display_mode);
+    free(config->tree_prefix);
+    free(config->tree_last_prefix);
+    free(config->tree_indent);
+    free(config);
 
     return 0;
 }

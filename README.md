@@ -10,9 +10,9 @@
 **Purpose:** Recursively scans git repositories and reports which ones have uncommitted changes
 
 ### committed-not-pushed
-**Input:** Repository path, max commit count  
-**Output:** `committed-not-pushed-report.json` (JSON) - Local commits not pushed to remote  
-**Purpose:** Finds commits that exist locally but haven't been pushed to remote repositories
+**Input:** Repository path, max commit count, display mode (flat/tree)  
+**Output:** `committed-not-pushed-report.json` (JSON) + terminal display in flat or tree format  
+**Purpose:** Finds commits that exist locally but haven't been pushed to remote repositories. Supports both flat text and tree visualization like interactive-dirty-files-tui.
 
 ### dirty-files
 **Input:** Repository path, max file count  
@@ -114,8 +114,8 @@ gcc -o component component.c ../json-utils/json-utils.o -lm
 
 ## Component Status
 
-- ✅ **Working:** git-submodules, dirty-files, file-tree, json-utils
-- 🚧 **In Development:** committed-not-pushed, three-pane-tui, interactive-dirty-files-tui
+- ✅ **Working:** git-submodules, dirty-files, file-tree, committed-not-pushed, json-utils
+- 🚧 **In Development:** three-pane-tui, interactive-dirty-files-tui
 - 🧪 **Demo/Prototype:** hello, hello-tui, terminal, test, git-status, git-tui
 - 📦 **Infrastructure:** main, json-utils
 
@@ -131,4 +131,10 @@ Run individual components:
 Run the full orchestrator:
 ```bash
 ./main
+```
+
+Control committed-not-pushed display mode:
+```bash
+./main --committed-not-pushed-tree    # Tree visualization
+./main --committed-not-pushed-flat    # Traditional flat text
 ```
