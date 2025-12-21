@@ -500,12 +500,15 @@ int main(int argc, char* argv[]) {
     log_state(orch, "Starting main application loop");
 
     // Run main application loop
+    // COMMENTED OUT: Perpetual while loop disabled for rapid testing
+    /*
     if (result == 0) {
         result = run_main_loop();
         log_state(orch, "Main application loop exited with result: %d", result);
     } else {
         log_state(orch, "Skipping main loop due to child execution failure");
     }
+    */
 
     // Cleanup
     orchestrator_cleanup(orch);

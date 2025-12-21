@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Committed Not Pushed Reporter",
+    "description": "Analyzes repositories for commits that exist locally but have not been pushed to remote"
+  },
+  "paths": {
+    "repo_path": "/home/owner/git/serverGenesis"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "max_commit_count": 50,
+    "show_commit_hashes": true,
+    "include_branch_info": true
+  }
+}

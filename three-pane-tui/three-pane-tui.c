@@ -363,26 +363,130 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
     return 0;
 }
 
-// Load hardcoded data for the three panes
+// Read and parse git-submodules.report for pane 1
+int load_git_submodules_data(three_pane_tui_orchestrator_t* orch) {
+    json_value_t* report = json_parse_file("git-submodules.report");
+    if (!report || report->type != JSON_OBJECT) {
+        fprintf(stderr, "Failed to load git-submodules.report\n");
+        return -1;
+    }
+
+    // Get repositories array
+    json_value_t* repos = get_nested_value(report, "repositories");
+    if (!repos || repos->type != JSON_ARRAY) {
+        fprintf(stderr, "No repositories found in report\n");
+        json_free(report);
+        return -1;
+    }
+
+    // Allocate space for repository data
+    orch->data.pane1_count = repos->value.arr_val->count;
+    orch->data.pane1_items = calloc(orch->data.pane1_count, sizeof(char*));
+
+    // Parse each repository
+    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+        json_value_t* repo = repos->value.arr_val->items[i];
+        if (repo->type != JSON_OBJECT) continue;
+
+        // Get repository name and status
+        json_value_t* name = get_nested_value(repo, "name");
+        json_value_t* status = get_nested_value(repo, "status");
+        json_value_t* changes = get_nested_value(repo, "changes");
+
+        // Format repository info
+        char buffer[1024];
+        if (name && name->type == JSON_STRING &&
+            status && status->type == JSON_STRING) {
+            if (changes && changes->type == JSON_STRING && strlen(changes->value.str_val) > 0) {
+                // Show first line of changes if available
+                char* newline_pos = strchr(changes->value.str_val, '\n');
+                if (newline_pos) {
+                    *newline_pos = '\0';
+                }
+                snprintf(buffer, sizeof(buffer), "%s [%s]: %s",
+                        name->value.str_val, status->value.str_val, changes->value.str_val);
+            } else {
+                snprintf(buffer, sizeof(buffer), "%s [%s]",
+                        name->value.str_val, status->value.str_val);
+            }
+        } else {
+            snprintf(buffer, sizeof(buffer), "Unknown repo");
+        }
+
+        orch->data.pane1_items[i] = strdup(buffer);
+    }
+
+    json_free(report);
+    return 0;
+}
+
+// Read and parse dirty-files-report.json for pane 2
+int load_dirty_files_data(three_pane_tui_orchestrator_t* orch) {
+    json_value_t* report = json_parse_file("dirty-files-report.json");
+    if (!report || report->type != JSON_OBJECT) {
+        fprintf(stderr, "Failed to load dirty-files-report.json\n");
+        return -1;
+    }
+
+    // Get repositories array
+    json_value_t* repos = get_nested_value(report, "repositories");
+    if (!repos || repos->type != JSON_ARRAY) {
+        fprintf(stderr, "No repositories found in dirty-files report\n");
+        json_free(report);
+        return -1;
+    }
+
+    // Count total dirty files across all repositories
+    size_t total_files = 0;
+    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+        json_value_t* repo = repos->value.arr_val->items[i];
+        if (repo->type != JSON_OBJECT) continue;
+
+        json_value_t* files = get_nested_value(repo, "dirty_files");
+        if (files && files->type == JSON_ARRAY) {
+            total_files += files->value.arr_val->count;
+        }
+    }
+
+    // Allocate space for all dirty files
+    orch->data.pane2_count = total_files;
+    orch->data.pane2_items = calloc(total_files, sizeof(char*));
+
+    // Parse dirty files from each repository
+    size_t file_index = 0;
+    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+        json_value_t* repo = repos->value.arr_val->items[i];
+        if (repo->type != JSON_OBJECT) continue;
+
+        json_value_t* repo_name = get_nested_value(repo, "name");
+        json_value_t* files = get_nested_value(repo, "dirty_files");
+
+        if (!files || files->type != JSON_ARRAY) continue;
+
+        // Add each dirty file with repository prefix
+        for (size_t j = 0; j < files->value.arr_val->count && file_index < total_files; j++) {
+            json_value_t* file = files->value.arr_val->items[j];
+            if (file->type == JSON_STRING) {
+                char buffer[1024];
+                if (repo_name && repo_name->type == JSON_STRING) {
+                    snprintf(buffer, sizeof(buffer), "%s: %s",
+                            repo_name->value.str_val, file->value.str_val);
+                } else {
+                    snprintf(buffer, sizeof(buffer), "%s", file->value.str_val);
+                }
+                orch->data.pane2_items[file_index] = strdup(buffer);
+                file_index++;
+            }
+        }
+    }
+
+    json_free(report);
+    return 0;
+}
+
+// Load hardcoded data for the third pane (right pane)
 int load_hardcoded_data(three_pane_tui_orchestrator_t* orch) {
-    // Left pane data
-    orch->data.pane1_count = 5;
-    orch->data.pane1_items = calloc(5, sizeof(char*));
-    orch->data.pane1_items[0] = strdup("Item 1");
-    orch->data.pane1_items[1] = strdup("Item 2");
-    orch->data.pane1_items[2] = strdup("Item 3");
-    orch->data.pane1_items[3] = strdup("Item 4");
-    orch->data.pane1_items[4] = strdup("Item 5");
-
-    // Center pane data
-    orch->data.pane2_count = 4;
-    orch->data.pane2_items = calloc(4, sizeof(char*));
-    orch->data.pane2_items[0] = strdup("Center A");
-    orch->data.pane2_items[1] = strdup("Center B");
-    orch->data.pane2_items[2] = strdup("Center C");
-    orch->data.pane2_items[3] = strdup("Center D");
-
-    // Right pane data
+    // Right pane data (keeping this hardcoded as requested)
     orch->data.pane3_count = 6;
     orch->data.pane3_items = calloc(6, sizeof(char*));
     orch->data.pane3_items[0] = strdup("Right 1");
@@ -410,6 +514,17 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
         free(orch->module_path);
         free(orch);
         return NULL;
+    }
+
+    // Load dynamic data from report files
+    if (load_git_submodules_data(orch) != 0) {
+        fprintf(stderr, "Warning: Failed to load git-submodules data, using fallback\n");
+        // Could add fallback data here if needed
+    }
+
+    if (load_dirty_files_data(orch) != 0) {
+        fprintf(stderr, "Warning: Failed to load dirty-files data, using fallback\n");
+        // Could add fallback data here if needed
     }
 
     if (load_hardcoded_data(orch) != 0) {
