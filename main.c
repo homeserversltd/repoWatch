@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <termios.h>
 #include <regex.h>
+#include <time.h>
+#include "json-utils/json-utils.h"
 
 // Configuration structure following infinite index pattern
 typedef struct {
@@ -21,10 +23,28 @@ typedef struct {
     int terminal_height;
 } config_t;
 
+// Child state structure for state aggregation
+typedef struct {
+    char* name;
+    int exit_code;
+    time_t start_time;
+    time_t end_time;
+    char* report;
+} child_state_t;
+
+// Root state structure
+typedef struct {
+    child_state_t* children;
+    size_t num_children;
+    time_t session_start;
+    time_t session_end;
+} root_state_t;
+
 // Orchestrator structure
 typedef struct {
     char* module_path;
     config_t config;
+    root_state_t state;
 } orchestrator_t;
 
 // Custom environment variable expansion (handles ${VAR:-default} syntax)
@@ -139,15 +159,47 @@ orchestrator_t* orchestrator_init(const char* module_path) {
         return NULL;
     }
 
+    // Initialize state
+    orch->state.children = NULL;
+    orch->state.num_children = 0;
+    orch->state.session_start = time(NULL);
+    orch->state.session_end = 0;
+
     return orch;
+}
+
+// Add child state to orchestrator
+void add_child_state(orchestrator_t* orch, const char* name, int exit_code, time_t start_time, time_t end_time, const char* report) {
+    orch->state.children = realloc(orch->state.children, sizeof(child_state_t) * (orch->state.num_children + 1));
+    if (!orch->state.children) return;
+
+    child_state_t* child = &orch->state.children[orch->state.num_children];
+    child->name = strdup(name);
+    child->exit_code = exit_code;
+    child->start_time = start_time;
+    child->end_time = end_time;
+    child->report = report ? strdup(report) : NULL;
+
+    orch->state.num_children++;
 }
 
 // Cleanup orchestrator
 void orchestrator_cleanup(orchestrator_t* orch) {
     if (orch) {
+        // Cleanup config
         free(orch->config.repo_path);
         free(orch->config.config_dir);
         free(orch->config.cache_dir);
+
+        // Cleanup state
+        if (orch->state.children) {
+            for (size_t i = 0; i < orch->state.num_children; i++) {
+                free(orch->state.children[i].name);
+                free(orch->state.children[i].report);
+            }
+            free(orch->state.children);
+        }
+
         free(orch->module_path);
         free(orch);
     }
@@ -161,14 +213,22 @@ int execute_children(orchestrator_t* orch) {
     printf("Cache directory: %s\n", orch->config.cache_dir);
     printf("Executing children...\n");
 
-    // For demo, we'll manually define the children since we don't have JSON parsing yet
-    // In a full implementation, this would be parsed from index.json
-    const char* children[] = {"hello", "git", "fs", "tui", "animation"};
-    size_t num_children = sizeof(children) / sizeof(children[0]);
+    // Read children from index.json
+    size_t num_children = 0;
+    char** children = index_json_get_children(".", &num_children);
+
+    if (!children) {
+        fprintf(stderr, "Error: Could not read children from index.json\n");
+        return 1;
+    }
 
     for (size_t i = 0; i < num_children; i++) {
         const char* child_name = children[i];
         char child_cmd[1024];
+        char report_file[1024];
+
+        // Create path for child's report file
+        snprintf(report_file, sizeof(report_file), "%s/%s/.report", orch->module_path, child_name);
 
         // Try different executable naming patterns
         // Pattern 1: {child_name}/{child_name} (e.g., hello/hello)
@@ -176,10 +236,35 @@ int execute_children(orchestrator_t* orch) {
 
         if (access(child_cmd, X_OK) == 0) {
             printf("Executing child: %s\n", child_name);
+
+            time_t start_time = time(NULL);
             int result = system(child_cmd);
+            time_t end_time = time(NULL);
+
             if (result != 0) {
                 fprintf(stderr, "Warning: Child '%s' exited with code %d\n", child_name, result);
             }
+
+            // Read child's report if it exists
+            char* report = NULL;
+            FILE* rf = fopen(report_file, "r");
+            if (rf) {
+                fseek(rf, 0, SEEK_END);
+                long size = ftell(rf);
+                fseek(rf, 0, SEEK_SET);
+                report = malloc(size + 1);
+                if (report) {
+                    fread(report, 1, size, rf);
+                    report[size] = '\0';
+                }
+                fclose(rf);
+                // Clean up report file
+                unlink(report_file);
+            }
+
+            // Add to state
+            add_child_state(orch, child_name, result, start_time, end_time, report);
+            free(report);
             continue;
         }
 
@@ -188,17 +273,75 @@ int execute_children(orchestrator_t* orch) {
 
         if (access(child_cmd, X_OK) == 0) {
             printf("Executing child: %s (index)\n", child_name);
+
+            time_t start_time = time(NULL);
             int result = system(child_cmd);
+            time_t end_time = time(NULL);
+
             if (result != 0) {
                 fprintf(stderr, "Warning: Child '%s' exited with code %d\n", child_name, result);
             }
+
+            // Read child's report if it exists
+            char* report = NULL;
+            FILE* rf = fopen(report_file, "r");
+            if (rf) {
+                fseek(rf, 0, SEEK_END);
+                long size = ftell(rf);
+                fseek(rf, 0, SEEK_SET);
+                report = malloc(size + 1);
+                if (report) {
+                    fread(report, 1, size, rf);
+                    report[size] = '\0';
+                }
+                fclose(rf);
+                // Clean up report file
+                unlink(report_file);
+            }
+
+            // Add to state
+            add_child_state(orch, child_name, result, start_time, end_time, report);
+            free(report);
             continue;
         }
 
         printf("Child '%s' not found or not executable\n", child_name);
     }
 
+    // Cleanup children array
+    for (size_t i = 0; i < num_children; i++) {
+        free(children[i]);
+    }
+    free(children);
+
     return 0;
+}
+
+// Display aggregated child reports
+void display_child_reports(orchestrator_t* orch) {
+    printf("\n=== CHILD EXECUTION REPORTS ===\n");
+
+    if (orch->state.num_children == 0) {
+        printf("No children executed.\n");
+        return;
+    }
+
+    for (size_t i = 0; i < orch->state.num_children; i++) {
+        child_state_t* child = &orch->state.children[i];
+
+        printf("\nChild: %s\n", child->name);
+        printf("Exit Code: %d\n", child->exit_code);
+        printf("Execution Time: %ld seconds\n", child->end_time - child->start_time);
+
+        if (child->report && strlen(child->report) > 0) {
+            printf("Report: %s", child->report);
+        } else {
+            printf("Report: (no report provided)\n");
+        }
+    }
+
+    printf("\n=== END REPORTS ===\n");
+    sleep(2); // Display for 2 seconds as requested
 }
 
 // Main application loop with terminal handling
@@ -251,6 +394,12 @@ int main(int argc, char* argv[]) {
 
     // Execute children (placeholder for now)
     int result = execute_children(orch);
+
+    // Set session end time
+    orch->state.session_end = time(NULL);
+
+    // Display child reports before main loop
+    display_child_reports(orch);
 
     // Run main application loop
     if (result == 0) {

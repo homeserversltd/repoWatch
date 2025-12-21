@@ -5,9 +5,9 @@
     "description": "Linux-native git repository monitor with real-time file watching"
   },
   "paths": {
-    "repo_path": ".",
-    "config_dir": "~/.config/repowatch",
-    "cache_dir": "~/.cache/repowatch"
+    "repo_path": "${REPO_WATCH_REPO_PATH:-.}",
+    "config_dir": "${XDG_CONFIG_HOME:-~/.config}/repowatch",
+    "cache_dir": "${XDG_CACHE_HOME:-~/.cache}/repowatch"
   },
   "children": [
     "git-status",

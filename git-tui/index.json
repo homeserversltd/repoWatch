@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Git Status TUI",
+    "description": "Terminal UI for displaying git status information from git-status child"
+  },
+  "paths": {
+    "title": "repoWatch - Git Status Monitor",
+    "status_source": "../git-status/.report"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "display_duration": 5000,
+    "exit_keys": "qQeE",
+    "centered_text": false,
+    "auto_refresh": true,
+    "refresh_interval": 2000
+  }
+}

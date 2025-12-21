@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Git Status Monitor",
+    "description": "Monitors git repository status and reports changes"
+  },
+  "paths": {
+    "repo_path": "${REPO_WATCH_REPO_PATH:-.}",
+    "status_cache": "${XDG_CACHE_HOME:-~/.cache}/repowatch/git-status.cache"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "check_interval": 1,
+    "cache_status": true,
+    "report_changes_only": true
+  }
+}

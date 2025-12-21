@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "JSON Utilities Module",
+    "description": "Specialized JSON reading and writing tools for repoWatch configuration"
+  },
+  "paths": {
+    "include_dir": ".",
+    "output_dir": "../bin"
+  },
+  "children": [],
+  "execution": {
+    "mode": "utility",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "tools": [
+      "get-children",
+      "get-value",
+      "set-value"
+    ],
+    "output_format": "text"
+  }
+}
