@@ -59,7 +59,6 @@ typedef struct {
 typedef struct {
     char* title;
     char* exit_keys;
-    char* toggle_keys;
     char* pane1_title;
     char* pane2_title;
     char* pane3_title;

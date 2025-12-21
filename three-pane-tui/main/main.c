@@ -17,7 +17,6 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
     // Extract config values with defaults
     orch->config.title = expandvars("Three Pane TUI Demo");
     orch->config.exit_keys = strdup("qQ");
-    orch->config.toggle_keys = strdup(" ");
     orch->config.pane1_title = expandvars("Left Pane");
     orch->config.pane2_title = expandvars("Center Pane");
     orch->config.pane3_title = expandvars("Right Pane");
@@ -107,7 +106,6 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
         // Cleanup config
         free(orch->config.title);
         free(orch->config.exit_keys);
-        free(orch->config.toggle_keys);
         free(orch->config.pane1_title);
         free(orch->config.pane2_title);
         free(orch->config.pane3_title);
@@ -137,8 +135,10 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     struct timespec last_redraw;
     struct timespec last_button_click;
+    struct timespec last_git_check;
     clock_gettime(CLOCK_MONOTONIC, &last_redraw);
     clock_gettime(CLOCK_MONOTONIC, &last_button_click);
+    clock_gettime(CLOCK_MONOTONIC, &last_git_check);
 
     // Set up signal handlers
     struct sigaction sa;
@@ -211,6 +211,31 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             draw_tui_overlay(orch);
         }
 
+        // Check if 200ms have elapsed since last git data refresh
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long elapsed_ms = (now.tv_sec - last_git_check.tv_sec) * 1000 +
+                         (now.tv_nsec - last_git_check.tv_nsec) / 1000000;
+
+        if (elapsed_ms >= 200) {  // 200ms refresh interval
+            // Refresh git data by re-running committed-not-pushed component
+            // First trigger git scan by executing committed-not-pushed component
+            int git_scan_result = system("../committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
+
+            // Then reload the data if git scan succeeded
+            if (git_scan_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                // Update scroll states after data refresh
+                get_terminal_size(&width, &height);
+                pane_width = width / 3;
+                pane_height = height - 5;
+                update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+                update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+                update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
+                draw_tui_overlay(orch);
+            }
+            last_git_check = now;  // Reset timer
+        }
+
         // Try to read mouse events first (they start with \033)
         int button, x, y, scroll_delta;
         int mouse_result = read_mouse_event(&button, &x, &y, &scroll_delta);
@@ -244,6 +269,13 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
                             // Reload data with new view mode
                             if (load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                                // Update scroll states to reflect new data count after view change
+                                get_terminal_size(&width, &height);
+                                pane_width = width / 3;
+                                pane_height = height - 5;
+                                update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+                                update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+                                update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
                                 draw_tui_overlay(orch);
                             }
                         }

@@ -14,20 +14,10 @@ MAIN_OBJS = main/main.o
 # All object files
 ALL_OBJS = $(CORE_OBJS) $(STYLES_OBJS) $(DATA_OBJS) $(UI_OBJS) $(MAIN_OBJS)
 
-# JSON utils dependencies (compiled as library only, no main)
+# JSON utils dependencies (built by root Makefile, assume they exist)
 JSON_UTILS = ../json-utils/json-utils.o ../json-utils/get-value.o
 
-# Compile flags for JSON utils (library only, no main function)
-JSON_CFLAGS = $(CFLAGS) -DGET_VALUE_LIBRARY_ONLY
-
-# JSON utils object files (compiled as library)
-../json-utils/json-utils.o: ../json-utils/json-utils.c
-	$(CC) $(JSON_CFLAGS) -c -o $@ $<
-
-../json-utils/get-value.o: ../json-utils/get-value.c
-	$(CC) $(JSON_CFLAGS) -c -o $@ $<
-
-# Main target
+# Main target - assumes JSON utils are already built by root Makefile
 three-pane-tui: $(ALL_OBJS) $(JSON_UTILS) three-pane-tui.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
