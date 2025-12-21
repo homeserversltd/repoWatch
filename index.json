@@ -10,9 +10,7 @@
     "cache_dir": "~/.cache/repowatch"
   },
   "children": [
-    "git-submodules",
-    "dirty-files",
-    "file-tree"
+    "three-pane-tui"
   ],
   "execution": {
     "mode": "parallel",

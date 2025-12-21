@@ -20,3 +20,5 @@ analyzer.log
 
 # OS files
 .DS_Store
+dirty-files-report.json
+git-submodules.report
