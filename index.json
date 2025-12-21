@@ -11,7 +11,8 @@
   },
   "children": [
     "git-submodules",
-    "dirty-files"
+    "dirty-files",
+    "dirty-files-tui"
   ],
   "execution": {
     "mode": "parallel",

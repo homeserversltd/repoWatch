@@ -438,12 +438,12 @@ int main(int argc, char* argv[]) {
     orch->state.session_end = time(NULL);
 
     // Display child reports before main loop
-    // display_child_reports(orch); // Commented out for testing
+    display_child_reports(orch);
 
     // Run main application loop
-    // if (result == 0) {
-    //     result = run_main_loop();
-    // } // Commented out for testing
+    if (result == 0) {
+        result = run_main_loop();
+    }
 
     // Cleanup
     orchestrator_cleanup(orch);

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Dirty Files TUI Display",
+    "description": "Terminal UI for displaying dirty files analysis from JSON report"
+  },
+  "paths": {
+    "report_file": "../dirty-files-report.json"
+  },
+  "children": [],
+  "execution": {
+    "mode": "standalone",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "title": "Dirty Files Analysis",
+    "exit_keys": "qQ",
+    "refresh_interval": 5000,
+    "max_display_files": 50
+  }
+}
