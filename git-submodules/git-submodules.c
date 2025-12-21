@@ -109,7 +109,15 @@ config_t* load_config() {
     if (!config) return NULL;
 
     // Load index.json configuration
-    json_value_t* root = index_json_load(".");
+    // Try component's own directory first (when run directly), then relative path (when run by orchestrator)
+    json_value_t* root = NULL;
+
+    // First try: component's own directory (for direct execution)
+    root = index_json_load("./index.json");
+    if (!root) {
+        // Second try: component directory relative to repoWatch root (for orchestrator execution)
+        root = index_json_load("git-submodules/index.json");
+    }
     if (root && root->type == JSON_OBJECT) {
         // Get repo path from paths.repo_path
         json_value_t* repo_path_val = get_nested_value(root, "paths.repo_path");
@@ -436,7 +444,7 @@ void generate_json_report(status_collection_t* collection, const char* repo_path
     }
 
     // Write JSON to file
-    if (json_write_file("git-submodules.report", root) != 0) {
+    if (json_write_file("../git-submodules.report", root) != 0) {
         fprintf(stderr, "Failed to write JSON report file\n");
     }
 

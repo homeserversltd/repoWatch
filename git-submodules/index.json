@@ -18,7 +18,7 @@
     "max_depth": 6,
     "check_interval": 1,
     "cache_status": true,
-    "report_changes_only": true,
+    "report_changes_only": false,
     "include_parent_status": true
   }
 }

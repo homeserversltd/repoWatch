@@ -107,12 +107,20 @@ char* expandvars(const char* input) {
 
 // Load configuration from index.json
 int load_config(file_tree_orchestrator_t* orch) {
-    // Load JSON config from module directory
+    // Load JSON config from component's own directory
     char config_path[1024];
-    snprintf(config_path, sizeof(config_path), "%s/index.json", orch->module_path);
-    json_value_t* config = json_parse_file(config_path);
+    // Try component's own index.json first, then relative path
+    json_value_t* config = NULL;
+
+    // First try: component's own directory (when run directly)
+    config = json_parse_file("./index.json");
+    if (!config) {
+        // Second try: component directory relative to repoWatch root (when run by orchestrator)
+        config = json_parse_file("file-tree/index.json");
+    }
+
     if (!config || config->type != JSON_OBJECT) {
-        fprintf(stderr, "Failed to load config from %s\n", config_path);
+        fprintf(stderr, "Failed to load config\n");
         return -1;
     }
 
@@ -121,7 +129,14 @@ int load_config(file_tree_orchestrator_t* orch) {
     orch->config.exit_keys = strdup("qQ");
     orch->config.refresh_interval = 5000;
     orch->config.max_display_files = 50;
-    orch->config.report_file = expandvars("dirty-files-report.json");
+
+    // Get report_file from config
+    json_value_t* report_file_val = get_nested_value(config, "paths.report_file");
+    if (report_file_val && report_file_val->type == JSON_STRING) {
+        orch->config.report_file = expandvars(report_file_val->value.str_val);
+    } else {
+        orch->config.report_file = expandvars("dirty-files-report.json");
+    }
 
     // Tree symbols
     orch->config.tree_symbols.branch = strdup("├── ");

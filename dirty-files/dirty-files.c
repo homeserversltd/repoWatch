@@ -167,10 +167,8 @@ void get_dirty_files(dirty_collection_t* collection, dirty_repo_t* repo) {
             char* newline = strchr(filename, '\n');
             if (newline) *newline = '\0';
 
-            // Skip submodule directories - we don't want to show them as "files"
-            if (!is_submodule_path(collection, filename)) {
-                add_dirty_file(repo, filename);
-            }
+            // Add to dirty files list (submodule directories won't appear as files in git status)
+            add_dirty_file(repo, filename);
         }
     }
 
@@ -227,7 +225,7 @@ void parse_git_submodules_report(dirty_collection_t* collection, const char* rep
             }
         }
 
-        // Add repository to our collection (we'll check for dirty files regardless of is_clean flag)
+        // Add all repositories to our collection (we'll check each one for dirty files)
         if (repo_name && repo_path) {
             printf("Found repo: %s at %s (%s)\n", repo_name, repo_path, is_clean ? "clean" : "dirty");
             add_dirty_repo(collection, repo_path, repo_name);

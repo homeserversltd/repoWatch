@@ -5,7 +5,7 @@
     "description": "Terminal UI for displaying dirty files organized in tree structure"
   },
   "paths": {
-    "report_file": "../dirty-files-report.json"
+    "report_file": "dirty-files-report.json"
   },
   "children": [],
   "execution": {

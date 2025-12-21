@@ -18,7 +18,8 @@
     "tools": [
       "get-children",
       "get-value",
-      "set-value"
+      "set-value",
+      "read-report"
     ],
     "output_format": "text"
   }
