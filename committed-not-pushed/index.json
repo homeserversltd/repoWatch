@@ -17,7 +17,7 @@
     "max_commit_count": 50,
     "show_commit_hashes": true,
     "include_branch_info": true,
-    "display_mode": "flat",
+    "display_mode": "tree",
     "tree_prefix": "├── ",
     "tree_last_prefix": "└── ",
     "tree_indent": "│   ",

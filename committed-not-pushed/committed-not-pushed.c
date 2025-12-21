@@ -35,9 +35,11 @@ json_value_t* get_nested_value(json_value_t* root, const char* key_path);
 
 // Load configuration from index.json
 committed_not_pushed_config_t* load_config(const char* module_path) {
+    // When run as child process, module_path is repoWatch root, so look for committed-not-pushed/index.json
     char index_path[1024];
-    snprintf(index_path, sizeof(index_path), "%s/index.json", module_path);
+    snprintf(index_path, sizeof(index_path), "%s/committed-not-pushed/index.json", module_path);
 
+    printf("DEBUG: Looking for config at: %s\n", index_path);
     json_value_t* config_json = json_parse_file(index_path);
     if (!config_json) {
         fprintf(stderr, "Failed to load configuration from %s\n", index_path);
@@ -55,7 +57,10 @@ committed_not_pushed_config_t* load_config(const char* module_path) {
     config->max_commit_count = get_nested_int(config_json, "config.max_commit_count", 50);
     config->show_commit_hashes = get_nested_int(config_json, "config.show_commit_hashes", 1);
     config->include_branch_info = get_nested_int(config_json, "config.include_branch_info", 1);
-    config->display_mode = expandvars(get_nested_string(config_json, "config.display_mode", "flat"));
+
+    char* raw_display_mode = get_nested_string(config_json, "config.display_mode", "flat");
+    printf("DEBUG: Raw display_mode from JSON: '%s'\n", raw_display_mode ? raw_display_mode : "NULL");
+    config->display_mode = expandvars(raw_display_mode);
     config->tree_prefix = expandvars(get_nested_string(config_json, "config.tree_prefix", "├── "));
     config->tree_last_prefix = expandvars(get_nested_string(config_json, "config.tree_last_prefix", "└── "));
     config->tree_indent = expandvars(get_nested_string(config_json, "config.tree_indent", "│   "));
@@ -74,6 +79,11 @@ committed_not_pushed_config_t* load_config(const char* module_path) {
     } else {
         config->current_view = VIEW_FLAT;
     }
+
+    // Debug output
+    printf("DEBUG: Loaded display_mode: '%s', current_view: %s\n",
+           config->display_mode,
+           config->current_view == VIEW_TREE ? "TREE" : "FLAT");
 
     json_free(config_json);
     return config;
@@ -105,21 +115,41 @@ char* expandvars(const char* input) {
     return strdup(input);
 }
 
-// Simple implementation of get_nested_value for basic key access
+// Simple implementation of get_nested_value with dot notation support
 json_value_t* get_nested_value(json_value_t* root, const char* key_path) {
-    if (!root || !key_path || root->type != JSON_OBJECT) {
+    if (!root || !key_path) {
         return NULL;
     }
 
-    // For now, just handle simple key access (no dot notation)
-    json_object_t* obj = root->value.obj_val;
-    for (size_t i = 0; i < obj->count; i++) {
-        if (strcmp(obj->entries[i]->key, key_path) == 0) {
-            return obj->entries[i]->value;
+    json_value_t* current = root;
+    char* path_copy = strdup(key_path);
+    char* token = strtok(path_copy, ".");
+
+    while (token && current) {
+        if (current->type != JSON_OBJECT) {
+            break;
         }
+
+        json_object_t* obj = current->value.obj_val;
+        int found = 0;
+        for (size_t i = 0; i < obj->count; i++) {
+            if (strcmp(obj->entries[i]->key, token) == 0) {
+                current = obj->entries[i]->value;
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found) {
+            current = NULL;
+            break;
+        }
+
+        token = strtok(NULL, ".");
     }
 
-    return NULL;
+    free(path_copy);
+    return current;
 }
 
 // Helper function to get display repo name (similar to interactive-dirty-files-tui)
