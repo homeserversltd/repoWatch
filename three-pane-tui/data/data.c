@@ -105,7 +105,11 @@ static tree_node_t* build_file_tree(char** files, size_t file_count) {
 
 // Print tree node with proper indentation
 static void print_tree_node(tree_node_t* node, int depth, int is_last, const char* prefix, const char* last_prefix, const char* indent, int max_width, int current_row, int max_row, char*** items, size_t* item_count) {
-    if (current_row >= max_row || !items || !item_count) return;
+    fprintf(stderr, "DEBUG: print_tree_node called with node='%s', depth=%d\n", node ? node->name : "NULL", depth);
+    if (current_row >= max_row || !items || !item_count || !node || !node->name) {
+        fprintf(stderr, "DEBUG: print_tree_node early return - invalid params or node\n");
+        return;
+    }
 
     // Print indentation
     char buffer[4096] = {0};
@@ -211,6 +215,16 @@ int load_git_submodules_data(three_pane_tui_orchestrator_t* orch) {
 
 // Read and parse committed-not-pushed-report.json for pane 2
 int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode) {
+    // Clean up old pane2 data first
+    for (size_t i = 0; i < orch->data.pane2_count; i++) {
+        if (orch->data.pane2_items[i]) {
+            free(orch->data.pane2_items[i]);
+        }
+    }
+    free(orch->data.pane2_items);
+    orch->data.pane2_items = NULL;
+    orch->data.pane2_count = 0;
+
     // First, read git-submodules.report to get list of known submodules to filter out
     char** submodules = NULL;
     size_t submodule_count = 0;

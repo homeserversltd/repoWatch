@@ -133,12 +133,25 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     struct timespec last_redraw;
     clock_gettime(CLOCK_MONOTONIC, &last_redraw);
-    // Set up signal handler for window resize
+
+    // Set up signal handlers
     struct sigaction sa;
+
+    // Window resize handler
     sa.sa_handler = handle_sigwinch;
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGWINCH, &sa, NULL);
+
+    // Emergency cleanup handlers for crash signals
+    sa.sa_handler = emergency_cleanup;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL);  // Segmentation fault
+    sigaction(SIGABRT, &sa, NULL);  // Abort
+    sigaction(SIGBUS, &sa, NULL);   // Bus error
+    sigaction(SIGILL, &sa, NULL);   // Illegal instruction
+    sigaction(SIGFPE, &sa, NULL);   // Floating point exception
 
     // Save current terminal state
     struct termios old_tio, new_tio;
@@ -234,10 +247,25 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                     running = 0;
                 } else if (c == ' ') {
                     // Toggle view mode
+                    fprintf(stderr, "DEBUG: Spacebar pressed, toggling view mode\n");
+                    view_mode_t old_view = orch->current_view;
                     orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
+                    fprintf(stderr, "DEBUG: View mode changed from %s to %s\n",
+                           old_view == VIEW_FLAT ? "FLAT" : "TREE",
+                           orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
+
                     // Reload data with new view mode
-                    if (load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                    fprintf(stderr, "DEBUG: Calling load_committed_not_pushed_data with view_mode=%s\n",
+                           orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
+                    int load_result = load_committed_not_pushed_data(orch, orch->current_view);
+                    fprintf(stderr, "DEBUG: load_committed_not_pushed_data returned %d\n", load_result);
+
+                    if (load_result == 0) {
+                        fprintf(stderr, "DEBUG: Calling draw_tui_overlay\n");
                         draw_tui_overlay(orch);
+                        fprintf(stderr, "DEBUG: draw_tui_overlay completed successfully\n");
+                    } else {
+                        fprintf(stderr, "DEBUG: load_committed_not_pushed_data failed, not redrawing\n");
                     }
                 }
             }

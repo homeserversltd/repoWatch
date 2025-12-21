@@ -8,6 +8,20 @@ void handle_sigwinch(int sig) {
     redraw_needed = 1;
 }
 
+// Emergency cleanup handler for crash signals
+void emergency_cleanup(int sig) {
+    // Restore terminal state in case of crash
+    disable_mouse_reporting();
+    show_cursor();
+    clear_screen();
+    move_cursor(1, 1);
+    printf("Program terminated unexpectedly (signal %d)\n", sig);
+    fflush(stdout);
+
+    // Exit with the signal number
+    _exit(128 + sig);
+}
+
 // Terminal control functions
 void save_cursor_position() {
     printf("\033[s");
@@ -82,9 +96,9 @@ char* expandvars(const char* input) {
 // Enable mouse reporting for X11 xterm mouse protocol
 int enable_mouse_reporting() {
     // Enable X11 xterm mouse reporting (button press/release, wheel)
-    printf("\033[?1000h"); // Basic mouse reporting
-    printf("\033[?1002h"); // Button event mouse reporting
-    printf("\033[?1003h"); // All motion mouse reporting
+    // Only enable necessary modes - avoid all motion reporting which is too aggressive
+    printf("\033[?1000h"); // Basic mouse reporting (button press/release)
+    printf("\033[?1002h"); // Button event mouse reporting (drag events)
     printf("\033[?1006h"); // SGR mouse mode (extended coordinates)
     fflush(stdout);
     return 0;
