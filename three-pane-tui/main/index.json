@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Main Orchestrator",
+    "description": "Main orchestrator that coordinates all three-pane-tui components and handles execution lifecycle"
+  },
+  "paths": {},
+  "children": [],
+  "execution": {
+    "mode": "standalone",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "signal_redraw_delay_ms": 10,
+    "input_poll_timeout_ms": 100,
+    "escape_key_code": 27
+  }
+}

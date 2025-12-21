@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Data Loading",
+    "description": "Loading and processing data for all three panes (git submodules, committed not pushed, system info)"
+  },
+  "paths": {},
+  "children": [],
+  "execution": {
+    "mode": "library",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "max_commit_info_length": 60,
+    "truncate_with_ellipsis": true,
+    "filter_submodule_files": true
+  }
+}

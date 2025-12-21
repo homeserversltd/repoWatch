@@ -5,7 +5,13 @@
     "description": "Three-pane terminal UI displaying git-submodules, committed-not-pushed analysis, and system info"
   },
   "paths": {},
-  "children": [],
+  "children": [
+    "core",
+    "styles",
+    "data",
+    "ui",
+    "main"
+  ],
   "execution": {
     "mode": "standalone",
     "continue_on_error": true,
@@ -16,7 +22,7 @@
     "exit_keys": "qQ",
     "pane1_title": "Git Submodules",
     "pane2_title": "Committed Not Pushed",
-    "pane3_title": "System Info"
+    "pane3_title": "Live Feed of Changes"
   },
   "styles": {
     "color_schemes": {

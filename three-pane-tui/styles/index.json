@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Style Management",
+    "description": "File styling, color schemes, and style loading from JSON configuration"
+  },
+  "paths": {},
+  "children": [],
+  "execution": {
+    "mode": "library",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "debug_style_loading": false
+  }
+}

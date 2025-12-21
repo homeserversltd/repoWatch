@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Core Terminal Control",
+    "description": "Basic terminal control functions, cursor movement, colors, and terminal size detection"
+  },
+  "paths": {},
+  "children": [],
+  "execution": {
+    "mode": "library",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "default_terminal_width": 80,
+    "default_terminal_height": 24
+  }
+}

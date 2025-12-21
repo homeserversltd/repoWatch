@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "UI Drawing",
+    "description": "User interface drawing functions for panes and TUI overlay"
+  },
+  "paths": {},
+  "children": [],
+  "execution": {
+    "mode": "library",
+    "continue_on_error": false,
+    "parallel": false
+  },
+  "config": {
+    "smart_truncation": true,
+    "preserve_tree_prefix": true,
+    "margin_width": 2,
+    "tree_prefix_width": 4
+  }
+}
