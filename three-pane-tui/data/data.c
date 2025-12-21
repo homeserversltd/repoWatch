@@ -292,15 +292,29 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch) {
 
 // Load hardcoded data for the third pane (right pane)
 int load_hardcoded_data(three_pane_tui_orchestrator_t* orch) {
-    // Right pane data (keeping this hardcoded as requested)
-    orch->data.pane3_count = 6;
-    orch->data.pane3_items = calloc(6, sizeof(char*));
-    orch->data.pane3_items[0] = strdup("Right 1");
-    orch->data.pane3_items[1] = strdup("Right 2");
-    orch->data.pane3_items[2] = strdup("Right 3");
-    orch->data.pane3_items[3] = strdup("Right 4");
-    orch->data.pane3_items[4] = strdup("Right 5");
-    orch->data.pane3_items[5] = strdup("Right 6");
+    // Right pane data (keeping this hardcoded as requested) - add more items for scrolling test
+    orch->data.pane3_count = 20;
+    orch->data.pane3_items = calloc(20, sizeof(char*));
+    orch->data.pane3_items[0] = strdup("Live Feed of Changes");
+    orch->data.pane3_items[1] = strdup("├── Modified files");
+    orch->data.pane3_items[2] = strdup("├── New files");
+    orch->data.pane3_items[3] = strdup("├── Deleted files");
+    orch->data.pane3_items[4] = strdup("├── Renamed files");
+    orch->data.pane3_items[5] = strdup("├── Untracked files");
+    orch->data.pane3_items[6] = strdup("├── Staged changes");
+    orch->data.pane3_items[7] = strdup("├── Commit history");
+    orch->data.pane3_items[8] = strdup("├── Branch status");
+    orch->data.pane3_items[9] = strdup("├── Remote status");
+    orch->data.pane3_items[10] = strdup("├── Merge conflicts");
+    orch->data.pane3_items[11] = strdup("├── Stash list");
+    orch->data.pane3_items[12] = strdup("├── Tag list");
+    orch->data.pane3_items[13] = strdup("├── Submodule status");
+    orch->data.pane3_items[14] = strdup("├── Worktree list");
+    orch->data.pane3_items[15] = strdup("├── Reflog entries");
+    orch->data.pane3_items[16] = strdup("├── Config changes");
+    orch->data.pane3_items[17] = strdup("├── Hook status");
+    orch->data.pane3_items[18] = strdup("├── LFS objects");
+    orch->data.pane3_items[19] = strdup("└── Build artifacts");
 
     return 0;
 }

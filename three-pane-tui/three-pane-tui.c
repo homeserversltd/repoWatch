@@ -1,7 +1,10 @@
 #include "three-pane-tui.h"
+#include <locale.h>
 
 // Main entry point for the three-pane-tui module
 int main(int argc, char* argv[]) {
+    // Set UTF-8 locale for proper Unicode support
+    setlocale(LC_ALL, "");
     // Get the module path - three-pane-tui is executed from repoWatch root,
     // but its files are in the three-pane-tui subdirectory
     char module_path[1024];
@@ -10,7 +13,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Append the three-pane-tui subdirectory to the module path
+    // The three-pane-tui executable is run from repoWatch root, but config files are in three-pane-tui/
     char full_module_path[2048];
     snprintf(full_module_path, sizeof(full_module_path), "%s/three-pane-tui", module_path);
 

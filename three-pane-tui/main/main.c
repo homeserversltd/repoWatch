@@ -1,4 +1,5 @@
 #include "../three-pane-tui.h"
+#include <locale.h>
 
 // Global flag for redraw requests
 volatile sig_atomic_t redraw_needed = 0;
@@ -47,10 +48,32 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
         return NULL;
     }
 
-    // Load hardcoded data for pane 1 (left pane)
-    orch->data.pane1_count = 1;
-    orch->data.pane1_items = calloc(1, sizeof(char*));
+    // Load hardcoded data for pane 1 (left pane) - add more items to test scrolling
+    orch->data.pane1_count = 15;
+    orch->data.pane1_items = calloc(15, sizeof(char*));
     orch->data.pane1_items[0] = strdup("n00dles");
+    orch->data.pane1_items[1] = strdup("├── src/");
+    orch->data.pane1_items[2] = strdup("├── main.c");
+    orch->data.pane1_items[3] = strdup("├── ui.c");
+    orch->data.pane1_items[4] = strdup("├── core.c");
+    orch->data.pane1_items[5] = strdup("├── data.c");
+    orch->data.pane1_items[6] = strdup("├── styles.c");
+    orch->data.pane1_items[7] = strdup("├── three-pane-tui.h");
+    orch->data.pane1_items[8] = strdup("├── Makefile");
+    orch->data.pane1_items[9] = strdup("├── index.json");
+    orch->data.pane1_items[10] = strdup("├── README.md");
+    orch->data.pane1_items[11] = strdup("├── LICENSE");
+    orch->data.pane1_items[12] = strdup("└── .gitignore");
+    orch->data.pane1_items[13] = strdup("repoWatch/");
+    orch->data.pane1_items[14] = strdup("serverGenesis/");
+
+    // Initialize scroll states
+    orch->data.pane1_scroll.scroll_position = 0;
+    orch->data.pane1_scroll.total_items = orch->data.pane1_count;
+    orch->data.pane2_scroll.scroll_position = 0;
+    orch->data.pane2_scroll.total_items = orch->data.pane2_count;
+    orch->data.pane3_scroll.scroll_position = 0;
+    orch->data.pane3_scroll.total_items = orch->data.pane3_count;
 
     if (load_committed_not_pushed_data(orch) != 0) {
         fprintf(stderr, "Warning: Failed to load committed-not-pushed data, using fallback\n");
@@ -104,6 +127,8 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
 
 // Execute the three-pane-tui module
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
+    struct timespec last_redraw;
+    clock_gettime(CLOCK_MONOTONIC, &last_redraw);
     // Set up signal handler for window resize
     struct sigaction sa;
     sa.sa_handler = handle_sigwinch;
@@ -124,6 +149,11 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
+    // Enable mouse reporting
+    if (enable_mouse_reporting() != 0) {
+        fprintf(stderr, "Warning: Failed to enable mouse reporting\n");
+    }
+
     // Hide cursor and save position
     hide_cursor();
     save_cursor_position();
@@ -133,20 +163,72 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
     // Main input loop
     int running = 1;
+    int width, height;
+    get_terminal_size(&width, &height);
+    int pane_width = width / 3;
+    int pane_height = height - 5; // Available rows for content
+
+    // Update initial scroll states
+    update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+    update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+    update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
 
     while (running) {
         // Check for redraw request from signal handler
         if (redraw_needed) {
             redraw_needed = 0;
+            // Recalculate dimensions on resize
+            get_terminal_size(&width, &height);
+            pane_width = width / 3;
+            pane_height = height - 5;
+            // Update scroll states for new dimensions
+            update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+            update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+            update_scroll_state(&orch->data.pane3_scroll, pane_height, orch->data.pane3_count);
             draw_tui_overlay(orch);
         }
 
-        // Check for keyboard input (non-blocking)
-        int c = getchar();
-        if (c != EOF) {
-            // Check for exit keys
-            if (c == 'q' || c == 'Q' || c == 27) { // 27 is Escape
-                running = 0;
+        // Try to read mouse events first
+        int button, x, y, scroll_delta;
+        int mouse_result = read_mouse_event(&button, &x, &y, &scroll_delta);
+
+        if (mouse_result == 0) {
+            // Handle mouse event
+            // Convert to 1-based coordinates
+            int pane_index = get_pane_at_position(x - 1, y - 1, pane_width, width, pane_height);
+            if (pane_index > 0 && pane_index <= 3) {
+                pane_scroll_state_t* scroll_state = NULL;
+                switch (pane_index) {
+                    case 1: scroll_state = &orch->data.pane1_scroll; break;
+                    case 2: scroll_state = &orch->data.pane2_scroll; break;
+                    case 3: scroll_state = &orch->data.pane3_scroll; break;
+                }
+                if (scroll_state) {
+                    update_pane_scroll(scroll_state, scroll_delta);
+
+                    // Throttle redraws to prevent crashes from rapid mouse events
+                    struct timespec now;
+                    clock_gettime(CLOCK_MONOTONIC, &now);
+                    long elapsed_ms = (now.tv_sec - last_redraw.tv_sec) * 1000 +
+                                    (now.tv_nsec - last_redraw.tv_nsec) / 1000000;
+
+                    if (elapsed_ms >= 50) { // Minimum 50ms between redraws
+                        draw_tui_overlay(orch);
+                        last_redraw = now;
+                    }
+                }
+            }
+        } else if (mouse_result == -3) {
+            // Incomplete mouse event, ignore and continue
+            // This prevents crashes from partial mouse event data
+        } else {
+            // No mouse event or invalid data, check for keyboard input
+            int c = read_char_timeout();
+            if (c >= 0) {
+                // Check for exit keys
+                if (c == 'q' || c == 'Q' || c == 27) { // 27 is Escape
+                    running = 0;
+                }
             }
         }
 
@@ -158,6 +240,9 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     clear_screen();
     restore_cursor_position();
     show_cursor();
+
+    // Disable mouse reporting
+    disable_mouse_reporting();
 
     // Restore blocking mode
     fcntl(STDIN_FILENO, F_SETFL, flags);

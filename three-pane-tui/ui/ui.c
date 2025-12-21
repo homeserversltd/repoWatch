@@ -1,7 +1,79 @@
 #include "../three-pane-tui.h"
+#include <unistd.h>
 
-// Draw a single pane
-void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index) {
+// Update scroll state based on viewport and content
+void update_scroll_state(pane_scroll_state_t* scroll_state, int viewport_height, int total_items) {
+    scroll_state->viewport_height = viewport_height;
+    scroll_state->total_items = total_items;
+
+    if (total_items <= viewport_height) {
+        scroll_state->max_scroll = 0;
+        scroll_state->scroll_position = 0;
+    } else {
+        scroll_state->max_scroll = total_items - viewport_height;
+        if (scroll_state->scroll_position > scroll_state->max_scroll) {
+            scroll_state->scroll_position = scroll_state->max_scroll;
+        }
+    }
+}
+
+// Update pane scroll position
+void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction) {
+    if (!scroll_state) return;
+
+    if (direction > 0) {
+        // Scroll down
+        if (scroll_state->scroll_position < scroll_state->max_scroll) {
+            scroll_state->scroll_position++;
+        }
+    } else if (direction < 0) {
+        // Scroll up
+        if (scroll_state->scroll_position > 0) {
+            scroll_state->scroll_position--;
+        }
+    }
+
+    // Ensure scroll position stays within bounds
+    if (scroll_state->scroll_position < 0) {
+        scroll_state->scroll_position = 0;
+    }
+    if (scroll_state->scroll_position > scroll_state->max_scroll) {
+        scroll_state->scroll_position = scroll_state->max_scroll;
+    }
+}
+
+// Determine which pane contains the given coordinates
+int get_pane_at_position(int x, int y, int pane_width, int total_width, int pane_height) {
+    // Safety checks
+    if (pane_width <= 0 || total_width <= 0 || pane_height <= 0) {
+        return 0;
+    }
+
+    // Check if click is within pane content area (below title row, above footer)
+    if (y < 3 || y > 3 + pane_height) {
+        return 0; // Outside pane content area
+    }
+
+    if (x < 0 || x >= total_width) return 0;
+
+    if (x < pane_width) {
+        return 1; // Left pane
+    } else if (x < pane_width * 2) {
+        return 2; // Center pane
+    } else {
+        return 3; // Right pane
+    }
+
+    return 0; // Outside panes
+}
+
+// Draw a single pane with scroll support
+void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state) {
+    // Safety checks
+    if (!title || !items || !styles || width <= 0 || height <= 0) {
+        return;
+    }
+
     // Draw title at the top of the pane (row 3, since row 1 is main title, row 2 is header separator)
     move_cursor(3, start_col);
     set_color(title_color);
@@ -13,7 +85,22 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
     // height parameter is the available rows for content (from row 4 onwards)
     int current_row = 4;
     int max_row = 3 + height; // height is available content rows, so max is row 3 + height
-    for (size_t i = 0; i < item_count && current_row <= max_row; i++) {
+
+    // Additional safety check
+    if (height <= 0 || max_row < current_row) {
+        return;
+    }
+
+    // Calculate which items to show based on scroll position
+    size_t start_item = scroll_state ? scroll_state->scroll_position : 0;
+    size_t end_item = start_item + height;
+
+    if (end_item > item_count) {
+        end_item = item_count;
+    }
+
+    // Draw visible items only
+    for (size_t i = start_item; i < end_item && current_row <= max_row; i++) {
         move_cursor(current_row, start_col);
         // Apply color based on file type
         int file_color = get_file_color(items[i], styles);
@@ -24,47 +111,58 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
         int max_text_width = width - 2; // Leave some margin
 
         if (strlen(text) > max_text_width) {
-            char truncated[1024];
+            char truncated[2048];
 
-            // For file entries (containing "├── "), prioritize showing the filename
-            if (strstr(text, "├── ")) {
-                const char* filename_start = strstr(text, "├── ");
-                if (filename_start) {
-                    filename_start += 4; // Skip "├── "
-                    const char* prefix_end = filename_start;
-                    int prefix_len = prefix_end - text;
+            // Find tree drawing characters (Unicode box drawing)
+            const char* tree_chars[] = {"├── ", "└── ", "│   ", NULL};
+            const char* filename_start = NULL;
+            int prefix_len = 0;
 
-                    // Preserve the exact tree prefix
-                    char preserved_prefix[32];
+            // Check for any tree drawing character
+            for (int t = 0; tree_chars[t] != NULL; t++) {
+                const char* found = strstr(text, tree_chars[t]);
+                if (found) {
+                    filename_start = found + strlen(tree_chars[t]);
+                    prefix_len = filename_start - text;
+                    break;
+                }
+            }
+
+            if (filename_start && prefix_len > 0) {
+                // Preserve the exact tree prefix (handle UTF-8 properly)
+                char preserved_prefix[32];
+                // Use memcpy to preserve UTF-8 bytes exactly
+                if (prefix_len < sizeof(preserved_prefix)) {
+                    memcpy(preserved_prefix, text, prefix_len);
+                    preserved_prefix[prefix_len] = '\0';
+                } else {
+                    // Fallback if prefix is too long
                     snprintf(preserved_prefix, sizeof(preserved_prefix), "%.*s", prefix_len, text);
+                }
 
-                    int available_for_filename = max_text_width - prefix_len - 3; // 3 for "..."
+                int available_for_filename = max_text_width - prefix_len - 3; // 3 for "..."
 
-                    if (available_for_filename > 0) {
-                        int filename_len = strlen(filename_start);
-                        if (filename_len <= available_for_filename) {
-                            // Can show full filename
-                            snprintf(truncated, sizeof(truncated), "%s%s", preserved_prefix, filename_start);
-                        } else {
-                            // Show ellipsis + end of filename
-                            int show_from = filename_len - available_for_filename;
-                            if (show_from > 0) {
-                                snprintf(truncated, sizeof(truncated), "%s...%s", preserved_prefix, filename_start + show_from);
-                            } else {
-                                // Fallback: just truncate normally
-                                snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
-                            }
-                        }
+                if (available_for_filename > 0) {
+                    int filename_len = strlen(filename_start);
+                    if (filename_len <= available_for_filename) {
+                        // Can show full filename
+                        snprintf(truncated, sizeof(truncated), "%s%s", preserved_prefix, filename_start);
                     } else {
-                        // Not enough space, truncate normally
-                        snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
+                        // Show ellipsis + end of filename
+                        int show_from = filename_len - available_for_filename;
+                        if (show_from > 0) {
+                            snprintf(truncated, sizeof(truncated), "%s...%s", preserved_prefix, filename_start + show_from);
+                        } else {
+                            // Fallback: just truncate normally
+                            snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
+                        }
                     }
                 } else {
-                    // Fallback for malformed entries
+                    // Not enough space, truncate normally
                     snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
                 }
             } else {
-                // For non-file entries (like repository names), truncate from end
+                // For non-tree entries (like repository names), truncate from end
                 int text_len = strlen(text);
                 int start_pos = text_len - (max_text_width - 3); // Leave room for "..."
                 if (start_pos > 0) {
@@ -81,12 +179,40 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
         reset_colors();
         current_row++;
     }
+
+    // Draw scroll indicators if content is scrollable
+    if (scroll_state && scroll_state->max_scroll > 0) {
+        // Draw up arrow if not at top
+        if (scroll_state->scroll_position > 0) {
+            move_cursor(4, start_col + width - 1);
+            set_color(32); // Green
+            printf("↑");
+        }
+
+        // Draw down arrow if not at bottom
+        if (scroll_state->scroll_position < scroll_state->max_scroll) {
+            move_cursor(3 + height, start_col + width - 1);
+            set_color(32); // Green
+            printf("↓");
+        }
+    }
 }
 
 // Draw the three-pane TUI overlay
 void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
+    if (!orch) return;
+
     int width, height;
     get_terminal_size(&width, &height);
+
+    // Safety checks for minimum terminal size
+    if (width < 20 || height < 10) {
+        clear_screen();
+        move_cursor(1, 1);
+        printf("Terminal too small. Minimum size: 20x10");
+        fflush(stdout);
+        return;
+    }
 
     clear_screen();
 
@@ -108,7 +234,7 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     // Calculate pane dimensions to maximize screen real estate
     int pane_width = width / 3;
     int remaining_width = width % 3; // Handle case where width is not divisible by 3
-    int pane_height = height - 4; // Available rows: total height minus main title row, header separator, pane title row, and footer separator
+    int pane_height = height - 5; // Available rows: total height minus main title, header separator, pane titles, footer separator, and footer text
 
     // Draw vertical border lines between panes
     set_color(orch->config.styles.ui.borders.vertical);
@@ -134,14 +260,14 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     // Draw three panes side by side, maximizing screen space
     // Each pane starts at row 2 (below the main title)
     draw_pane(1, pane_width - 1, pane_height, orch->config.pane1_title,
-              orch->data.pane1_items, orch->data.pane1_count, orch->config.styles.ui.pane_titles.left, &orch->config.styles, 1);
+              orch->data.pane1_items, orch->data.pane1_count, orch->config.styles.ui.pane_titles.left, &orch->config.styles, 1, &orch->data.pane1_scroll);
 
     draw_pane(pane_width + 1, pane_width - 1, pane_height, orch->config.pane2_title,
-              orch->data.pane2_items, orch->data.pane2_count, orch->config.styles.ui.pane_titles.center, &orch->config.styles, 2);
+              orch->data.pane2_items, orch->data.pane2_count, orch->config.styles.ui.pane_titles.center, &orch->config.styles, 2, &orch->data.pane2_scroll);
 
     // Rightmost pane gets any remaining width minus the border
     draw_pane(pane_width * 2 + 1, pane_width + remaining_width - 1, pane_height, orch->config.pane3_title,
-              orch->data.pane3_items, orch->data.pane3_count, orch->config.styles.ui.pane_titles.right, &orch->config.styles, 3);
+              orch->data.pane3_items, orch->data.pane3_count, orch->config.styles.ui.pane_titles.right, &orch->config.styles, 3, &orch->data.pane3_scroll);
 
     // Footer at bottom (after the horizontal separator)
     move_cursor(height, 1);

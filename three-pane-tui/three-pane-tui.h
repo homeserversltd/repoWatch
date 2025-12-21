@@ -59,6 +59,14 @@ typedef struct {
     style_config_t styles;
 } three_pane_tui_config_t;
 
+// Scroll state for individual panes
+typedef struct {
+    int scroll_position;     // Current scroll position (0 = top)
+    int max_scroll;         // Maximum scroll position
+    int viewport_height;    // Number of visible lines in pane
+    int total_items;        // Total number of items in pane
+} pane_scroll_state_t;
+
 // Hardcoded data for the three panes
 typedef struct {
     char** pane1_items;
@@ -67,6 +75,9 @@ typedef struct {
     size_t pane2_count;
     char** pane3_items;
     size_t pane3_count;
+    pane_scroll_state_t pane1_scroll;
+    pane_scroll_state_t pane2_scroll;
+    pane_scroll_state_t pane3_scroll;
 } three_pane_data_t;
 
 // Orchestrator for three-pane-tui module
@@ -95,6 +106,10 @@ void set_color(int color_code);
 void set_background(int color_code);
 int get_terminal_size(int* width, int* height);
 char* expandvars(const char* input);
+int enable_mouse_reporting();
+void disable_mouse_reporting();
+int read_mouse_event(int* button, int* x, int* y, int* scroll_delta);
+int read_char_timeout();
 
 // Styles module functions
 int get_file_color(const char* filepath, const style_config_t* styles);
@@ -107,8 +122,11 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch);
 int load_hardcoded_data(three_pane_tui_orchestrator_t* orch);
 
 // UI module functions
-void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index);
+void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state);
 void draw_tui_overlay(three_pane_tui_orchestrator_t* orch);
+int get_pane_at_position(int x, int y, int pane_width, int total_width, int pane_height);
+void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction);
+void update_scroll_state(pane_scroll_state_t* scroll_state, int viewport_height, int total_items);
 
 // Main module functions
 three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path);
