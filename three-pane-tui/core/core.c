@@ -378,11 +378,27 @@ char* truncate_string_right_priority(const char* str, int max_width) {
     // Create result with ellipses + rightmost characters
     char* result = NULL;
     if (bytes_to_keep > 0) {
+        // Find the correct starting position that aligns with UTF-8 character boundary
+        const char* src_start = str + (strlen(str) - bytes_to_keep);
+
+        // Ensure we start at a valid UTF-8 character boundary
+        while (src_start > str && ((*src_start & 0xC0) == 0x80)) {
+            // This is a continuation byte, move back to find the start of the character
+            src_start--;
+            bytes_to_keep++;
+        }
+
+        // Make sure we don't exceed the string length
+        if (bytes_to_keep > strlen(str)) {
+            bytes_to_keep = strlen(str);
+            src_start = str;
+        }
+
         result = calloc(ellipses_width + bytes_to_keep + 1, sizeof(char));
         strcpy(result, "...");
-        // Copy the rightmost bytes_to_keep bytes from original string
-        const char* src_start = str + (strlen(str) - bytes_to_keep);
-        strcpy(result + ellipses_width, src_start);
+        // Copy from the valid UTF-8 character boundary
+        strncpy(result + ellipses_width, src_start, bytes_to_keep);
+        result[ellipses_width + bytes_to_keep] = '\0';
     } else {
         result = strdup("...");
     }

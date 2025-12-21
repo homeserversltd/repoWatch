@@ -32,6 +32,23 @@ int get_file_color(const char* filepath, const style_config_t* styles) {
     return styles->files.file_default_color;
 }
 
+// Get deterministic color for a repository based on its name
+int get_repo_color(const char* repo_name) {
+    if (!repo_name) return 37; // Default white
+
+    // Simple hash function for deterministic color assignment (djb2 algorithm)
+    unsigned long hash = 5381;
+    const char* p = repo_name;
+    while (*p) {
+        hash = ((hash << 5) + hash) + *p;
+        p++;
+    }
+
+    // 8-color palette: red, green, yellow, blue, magenta, cyan, white, bright green
+    int colors[] = {31, 32, 33, 34, 35, 36, 37, 92};
+    return colors[hash % 8];
+}
+
 // Load style configuration from index.json
 int load_styles(style_config_t* styles, const char* module_path) {
     // Construct full path to three-pane-tui/styles/index.json

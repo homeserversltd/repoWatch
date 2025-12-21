@@ -75,7 +75,17 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
     }
 
     // Draw title at the top of the pane (row 3, since row 1 is main title, row 2 is header separator)
-    move_cursor(3, start_col);
+    if (pane_index == 2) {
+        // Center the center pane title
+        int title_len = strlen(title);
+        int center_col = start_col + (width - title_len) / 2;
+        // Ensure it doesn't go beyond the pane boundaries
+        if (center_col < start_col) center_col = start_col;
+        if (center_col + title_len > start_col + width) center_col = start_col + width - title_len;
+        move_cursor(3, center_col);
+    } else {
+        move_cursor(3, start_col);
+    }
     set_color(title_color);
     set_bold();
     printf("%s", title);
@@ -216,7 +226,8 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     // Footer at bottom (after the horizontal separator)
     move_cursor(height, 1);
     set_color(32); // Green for footer text
-    printf("Ctrl+C to escape");
+    const char* current_view = (orch->current_view == VIEW_FLAT) ? "FLAT" : "TREE";
+    printf("Ctrl+C to escape | [%s] click to toggle view", current_view);
     reset_colors();
 
     fflush(stdout);

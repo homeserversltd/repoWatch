@@ -20,7 +20,7 @@
   "config": {
     "title": "repoWatch Three Pane Display",
     "exit_keys": "qQ",
-    "pane1_title": "Git Submodules",
+    "pane1_title": "Dirty Files",
     "pane2_title": "Committed Not Pushed",
     "pane3_title": "Live Feed of Changes"
   }

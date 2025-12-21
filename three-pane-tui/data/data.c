@@ -466,8 +466,18 @@ int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mod
     return 0;
 }
 
-// Read and parse dirty-files-report.json for pane 2
-int load_dirty_files_data(three_pane_tui_orchestrator_t* orch) {
+// Read and parse dirty-files-report.json for pane 1
+int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode) {
+    // Clean up old pane1 data first
+    for (size_t i = 0; i < orch->data.pane1_count; i++) {
+        if (orch->data.pane1_items[i]) {
+            free(orch->data.pane1_items[i]);
+        }
+    }
+    free(orch->data.pane1_items);
+    orch->data.pane1_items = NULL;
+    orch->data.pane1_count = 0;
+
     json_value_t* report = json_parse_file("dirty-files-report.json");
     if (!report || report->type != JSON_OBJECT) {
         fprintf(stderr, "Failed to load dirty-files-report.json\n");
@@ -482,46 +492,117 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch) {
         return -1;
     }
 
-    // Count total dirty files across all repositories
-    size_t total_files = 0;
-    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
-        json_value_t* repo = repos->value.arr_val->items[i];
-        if (repo->type != JSON_OBJECT) continue;
+    // For tree view, collect all files per repository and build trees
+    if (view_mode == VIEW_TREE) {
+        orch->data.pane1_count = 0;
+        orch->data.pane1_items = NULL;
 
-        json_value_t* files = get_nested_value(repo, "dirty_files");
-        if (files && files->type == JSON_ARRAY) {
-            total_files += files->value.arr_val->count;
-        }
-    }
+        // Process each repository with dirty files
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
 
-    // Allocate space for all dirty files
-    orch->data.pane2_count = total_files;
-    orch->data.pane2_items = calloc(total_files, sizeof(char*));
+            json_value_t* repo_name = get_nested_value(repo, "name");
+            json_value_t* files = get_nested_value(repo, "dirty_files");
 
-    // Parse dirty files from each repository
-    size_t file_index = 0;
-    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
-        json_value_t* repo = repos->value.arr_val->items[i];
-        if (repo->type != JSON_OBJECT) continue;
+            if (!repo_name || repo_name->type != JSON_STRING) continue;
+            if (!files || files->type != JSON_ARRAY || files->value.arr_val->count == 0) continue;
 
-        json_value_t* repo_name = get_nested_value(repo, "name");
-        json_value_t* files = get_nested_value(repo, "dirty_files");
-
-        if (!files || files->type != JSON_ARRAY) continue;
-
-        // Add each dirty file with repository prefix
-        for (size_t j = 0; j < files->value.arr_val->count && file_index < total_files; j++) {
-            json_value_t* file = files->value.arr_val->items[j];
-            if (file->type == JSON_STRING) {
-                char buffer[1024];
-                if (repo_name && repo_name->type == JSON_STRING) {
-                    snprintf(buffer, sizeof(buffer), "%s: %s",
-                            repo_name->value.str_val, file->value.str_val);
-                } else {
-                    snprintf(buffer, sizeof(buffer), "%s", file->value.str_val);
+            // Get repository name
+            json_value_t* repo_path = get_nested_value(repo, "path");
+            const char* display_name = repo_name->value.str_val;
+            if (repo_path && repo_path->type == JSON_STRING) {
+                const char* path = repo_path->value.str_val;
+                const char* repo_name_from_path = strrchr(path, '/');
+                if (repo_name_from_path) {
+                    display_name = repo_name_from_path + 1;
                 }
-                orch->data.pane2_items[file_index] = strdup(buffer);
-                file_index++;
+            }
+
+            // Add repository header
+            char header_buffer[512];
+            snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", display_name);
+            orch->data.pane1_items = realloc(orch->data.pane1_items, (orch->data.pane1_count + 1) * sizeof(char*));
+            orch->data.pane1_items[orch->data.pane1_count] = strdup(header_buffer);
+            orch->data.pane1_count++;
+
+            // Collect all files from this repository
+            char** repo_files = NULL;
+            size_t repo_file_count = 0;
+
+            for (size_t j = 0; j < files->value.arr_val->count; j++) {
+                json_value_t* file = files->value.arr_val->items[j];
+                if (file->type == JSON_STRING) {
+                    repo_files = realloc(repo_files, (repo_file_count + 1) * sizeof(char*));
+                    repo_files[repo_file_count] = strdup(file->value.str_val);
+                    repo_file_count++;
+                }
+            }
+
+            // Build file tree for this repository
+            if (repo_file_count > 0) {
+                tree_node_t* file_tree = build_file_tree(repo_files, repo_file_count);
+                if (file_tree && file_tree->child_count > 0) {
+                    // Print tree nodes (with indentation for the repository)
+                    for (size_t j = 0; j < file_tree->child_count; j++) {
+                        int is_last = (j == file_tree->child_count - 1);
+                        print_tree_node(file_tree->children[j], 0, is_last,
+                                      "├── ", "└── ", "│   ", 256, 0, 1000,
+                                      &orch->data.pane1_items, &orch->data.pane1_count);
+                    }
+                }
+                cleanup_tree_node(file_tree);
+
+                // Cleanup repo files
+                for (size_t j = 0; j < repo_file_count; j++) {
+                    free(repo_files[j]);
+                }
+                free(repo_files);
+            }
+        }
+    } else {
+        // Flat view mode
+        // Count total dirty files across all repositories
+        size_t total_files = 0;
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
+
+            json_value_t* files = get_nested_value(repo, "dirty_files");
+            if (files && files->type == JSON_ARRAY) {
+                total_files += files->value.arr_val->count;
+            }
+        }
+
+        // Allocate space for all dirty files
+        orch->data.pane1_count = total_files;
+        orch->data.pane1_items = calloc(total_files, sizeof(char*));
+
+        // Parse dirty files from each repository
+        size_t file_index = 0;
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
+
+            json_value_t* repo_name = get_nested_value(repo, "name");
+            json_value_t* files = get_nested_value(repo, "dirty_files");
+
+            if (!files || files->type != JSON_ARRAY) continue;
+
+            // Add each dirty file with repository prefix
+            for (size_t j = 0; j < files->value.arr_val->count && file_index < total_files; j++) {
+                json_value_t* file = files->value.arr_val->items[j];
+                if (file->type == JSON_STRING) {
+                    char buffer[1024];
+                    if (repo_name && repo_name->type == JSON_STRING) {
+                        snprintf(buffer, sizeof(buffer), "%s: %s",
+                                repo_name->value.str_val, file->value.str_val);
+                    } else {
+                        snprintf(buffer, sizeof(buffer), "%s", file->value.str_val);
+                    }
+                    orch->data.pane1_items[file_index] = strdup(buffer);
+                    file_index++;
+                }
             }
         }
     }

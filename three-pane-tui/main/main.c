@@ -54,26 +54,12 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
         return NULL;
     }
 
-    // Load hardcoded data for pane 1 (left pane) - add more items to test scrolling
-    orch->data.pane1_count = 15;
-    orch->data.pane1_items = calloc(15, sizeof(char*));
-    orch->data.pane1_items[0] = strdup("n00dles");
-    orch->data.pane1_items[1] = strdup("├── src/");
-    orch->data.pane1_items[2] = strdup("├── main.c");
-    orch->data.pane1_items[3] = strdup("├── ui.c");
-    orch->data.pane1_items[4] = strdup("├── core.c");
-    orch->data.pane1_items[5] = strdup("├── data.c");
-    orch->data.pane1_items[6] = strdup("├── styles.c");
-    orch->data.pane1_items[7] = strdup("├── three-pane-tui.h");
-    orch->data.pane1_items[8] = strdup("├── Makefile");
-    orch->data.pane1_items[9] = strdup("├── index.json");
-    orch->data.pane1_items[10] = strdup("├── README.md");
-    orch->data.pane1_items[11] = strdup("├── LICENSE");
-    orch->data.pane1_items[12] = strdup("└── .gitignore");
-    orch->data.pane1_items[13] = strdup("repoWatch/");
-    orch->data.pane1_items[14] = strdup("serverGenesis/");
+    // Load dirty files data for pane 1 (left pane)
+    if (load_dirty_files_data(orch, orch->current_view) != 0) {
+        fprintf(stderr, "Warning: Failed to load dirty files data, using empty pane\n");
+    }
 
-    // Initialize scroll states
+    // Initialize pane1 scroll state (after data is loaded)
     orch->data.pane1_scroll.scroll_position = 0;
     orch->data.pane1_scroll.total_items = orch->data.pane1_count;
     orch->data.pane2_scroll.scroll_position = 0;
@@ -218,11 +204,13 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                          (now.tv_nsec - last_git_check.tv_nsec) / 1000000;
 
         if (elapsed_ms >= 200) {  // 200ms refresh interval
-            // Refresh git data by re-running committed-not-pushed component
-            int git_scan_result = system("./committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
+            // Refresh git data by re-running both components
+            int dirty_files_result = system("./dirty-files/dirty-files > /dev/null 2>&1");
+            int committed_not_pushed_result = system("./committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
 
-            // Then reload the data if git scan succeeded
-            if (git_scan_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+            // Then reload the data if scans succeeded
+            if ((dirty_files_result == 0 && load_dirty_files_data(orch, orch->current_view) == 0) ||
+                (committed_not_pushed_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0)) {
                 // Update scroll states after data refresh
                 get_terminal_size(&width, &height);
                 pane_width = width / 3;
@@ -252,8 +240,8 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
                 // Check if click is in footer (last row)
                 if (click_y == height - 1) {
-                    // Check if click is on the toggle button (around columns 10-20)
-                    if (click_x >= 10 && click_x <= 20) {
+                    // Check if click is on the toggle button (around columns 22-32 for "[FLAT]" or "[TREE]")
+                    if (click_x >= 22 && click_x <= 32) {
                         // Check cooldown (1 second minimum between clicks)
                         struct timespec now;
                         clock_gettime(CLOCK_MONOTONIC, &now);
@@ -266,8 +254,9 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
                             orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
 
-                            // Reload data with new view mode
-                            if (load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                            // Reload data with new view mode for both panes
+                            if (load_dirty_files_data(orch, orch->current_view) == 0 &&
+                                load_committed_not_pushed_data(orch, orch->current_view) == 0) {
                                 // Update scroll states to reflect new data count after view change
                                 get_terminal_size(&width, &height);
                                 pane_width = width / 3;

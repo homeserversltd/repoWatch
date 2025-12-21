@@ -129,7 +129,7 @@ int load_styles(style_config_t* styles, const char* module_path);
 // Data module functions
 int load_git_submodules_data(three_pane_tui_orchestrator_t* orch);
 int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode);
-int load_dirty_files_data(three_pane_tui_orchestrator_t* orch);
+int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode);
 int load_hardcoded_data(three_pane_tui_orchestrator_t* orch);
 
 // UI module functions
