@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Terminal Size Module",
+    "description": "Prints the current terminal window dimensions"
+  },
+  "paths": {
+    "output_prefix": "Terminal Size:"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "output_format": "simple",
+    "include_pixels": false
+  }
+}

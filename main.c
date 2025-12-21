@@ -7,7 +7,6 @@
 #include <errno.h>
 #include <termios.h>
 #include <regex.h>
-#include <sys/ioctl.h>
 
 // Configuration structure following infinite index pattern
 typedef struct {

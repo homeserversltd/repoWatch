@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Hello TUI Module",
+    "description": "Terminal UI overlay displaying Hello World with traditional TUI behavior"
+  },
+  "paths": {
+    "title": "repoWatch TUI Demo"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "display_duration": 2000,
+    "exit_keys": "qQ",
+    "centered_text": true
+  }
+}

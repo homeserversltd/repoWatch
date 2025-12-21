@@ -11,6 +11,8 @@
   },
   "children": [
     "hello",
+    "terminal",
+    "hello-tui",
     "git",
     "fs",
     "tui",
