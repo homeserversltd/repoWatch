@@ -1,5 +1,13 @@
 #include "../three-pane-tui.h"
 
+// Tree node structure for hierarchical display
+typedef struct tree_node {
+    char* name;
+    struct tree_node** children;
+    size_t child_count;
+    int is_file;
+} tree_node_t;
+
 // Helper function to check if a filename is a known submodule
 static int is_submodule(const char* filename, char** submodules, size_t submodule_count) {
     if (!filename || !submodules) return 0;
@@ -9,6 +17,139 @@ static int is_submodule(const char* filename, char** submodules, size_t submodul
         }
     }
     return 0;
+}
+
+// Cleanup tree node recursively
+static void cleanup_tree_node(tree_node_t* node) {
+    if (!node) return;
+
+    for (size_t i = 0; i < node->child_count; i++) {
+        cleanup_tree_node(node->children[i]);
+    }
+
+    free(node->children);
+    free(node->name);
+    free(node);
+}
+
+// Build file tree from flat file paths
+static tree_node_t* build_file_tree(char** files, size_t file_count) {
+    tree_node_t* root = calloc(1, sizeof(tree_node_t));
+    if (!root) return NULL;
+
+    root->name = strdup("/");
+    root->is_file = 0;
+
+    for (size_t i = 0; i < file_count; i++) {
+        const char* path = files[i];
+        tree_node_t* current = root;
+
+        // Skip leading slash
+        if (path[0] == '/') path++;
+
+        char* path_copy = strdup(path);
+        char* token = strtok(path_copy, "/");
+
+        while (token) {
+            // Check if child already exists
+            tree_node_t* child = NULL;
+            for (size_t j = 0; j < current->child_count; j++) {
+                if (strcmp(current->children[j]->name, token) == 0) {
+                    child = current->children[j];
+                    break;
+                }
+            }
+
+            // Create new child if not found
+            if (!child) {
+                child = calloc(1, sizeof(tree_node_t));
+                child->name = strdup(token);
+
+                // Check if this is the last token (file) or not (directory)
+                char* next_token = strtok(NULL, "/");
+                child->is_file = (next_token == NULL);
+
+                // Put token back for proper processing
+                if (next_token) {
+                    // This is a directory, put the token back
+                    char* temp = strtok(NULL, ""); // Get rest of string
+                    if (temp) {
+                        char* full_rest = malloc(strlen(next_token) + strlen(temp) + 2);
+                        sprintf(full_rest, "%s/%s", next_token, temp);
+                        strtok(full_rest, "/"); // Reset strtok state
+                        free(full_rest);
+                    }
+                }
+
+                // Add to parent's children
+                current->children = realloc(current->children, (current->child_count + 1) * sizeof(tree_node_t*));
+                current->children[current->child_count] = child;
+                current->child_count++;
+            }
+
+            current = child;
+
+            // Get next token only if we haven't already processed it
+            if (!child->is_file) {
+                token = strtok(NULL, "/");
+            } else {
+                token = NULL;
+            }
+        }
+
+        free(path_copy);
+    }
+
+    return root;
+}
+
+// Print tree node with proper indentation
+static void print_tree_node(tree_node_t* node, int depth, int is_last, const char* prefix, const char* last_prefix, const char* indent, int max_width, int current_row, int max_row, char*** items, size_t* item_count) {
+    if (current_row >= max_row || !items || !item_count) return;
+
+    // Print indentation
+    char buffer[4096] = {0};
+    int buffer_pos = 0;
+
+    for (int i = 0; i < depth; i++) {
+        buffer_pos += snprintf(buffer + buffer_pos, sizeof(buffer) - buffer_pos, "%s", indent);
+    }
+
+    // Print tree prefix
+    if (depth > 0) {
+        if (is_last) {
+            buffer_pos += snprintf(buffer + buffer_pos, sizeof(buffer) - buffer_pos, "%s", last_prefix);
+        } else {
+            buffer_pos += snprintf(buffer + buffer_pos, sizeof(buffer) - buffer_pos, "%s", prefix);
+        }
+    }
+
+    // Print node name (truncated if necessary)
+    char truncated_name[256];
+    size_t len = strlen(node->name);
+    if (len <= max_width) {
+        strcpy(truncated_name, node->name);
+    } else {
+        int copy_len = max_width - 3;
+        if (copy_len < 1) copy_len = 1;
+        strncpy(truncated_name, node->name, copy_len);
+        truncated_name[copy_len] = '\0';
+        strcat(truncated_name, "...");
+    }
+
+    buffer_pos += snprintf(buffer + buffer_pos, sizeof(buffer) - buffer_pos, "%s", truncated_name);
+
+    // Add to items array
+    *items = realloc(*items, (*item_count + 1) * sizeof(char*));
+    (*items)[*item_count] = strdup(buffer);
+    (*item_count)++;
+    current_row++;
+
+    // Print children
+    for (size_t i = 0; i < node->child_count; i++) {
+        int child_is_last = (i == node->child_count - 1);
+        print_tree_node(node->children[i], depth + 1, child_is_last, prefix, last_prefix, indent, max_width, current_row, max_row, items, item_count);
+    }
 }
 
 // Read and parse git-submodules.report for pane 1
@@ -69,7 +210,7 @@ int load_git_submodules_data(three_pane_tui_orchestrator_t* orch) {
 }
 
 // Read and parse committed-not-pushed-report.json for pane 2
-int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch) {
+int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode) {
     // First, read git-submodules.report to get list of known submodules to filter out
     char** submodules = NULL;
     size_t submodule_count = 0;
@@ -117,95 +258,185 @@ int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch) {
         return 1;
     }
 
-    // Count total items needed (repository headers + commits + non-submodule files)
-    size_t total_items = 0;
-    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
-        json_value_t* repo = repos->value.arr_val->items[i];
-        if (repo->type != JSON_OBJECT) continue;
+    // For tree view, collect all files per repository and build trees
+    if (view_mode == VIEW_TREE) {
+        // Count repositories with commits
+        size_t repo_with_commits_count = 0;
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
+            json_value_t* commits = get_nested_value(repo, "unpushed_commits");
+            if (commits && commits->type == JSON_ARRAY && commits->value.arr_val->count > 0) {
+                repo_with_commits_count++;
+            }
+        }
 
-        json_value_t* commits = get_nested_value(repo, "unpushed_commits");
-        if (commits && commits->type == JSON_ARRAY) {
-            total_items += 1; // Repository header
+        orch->data.pane2_count = 0;
+        orch->data.pane2_items = NULL;
+
+        // Process each repository with commits
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
+
+            json_value_t* repo_name = get_nested_value(repo, "name");
+            json_value_t* commits = get_nested_value(repo, "unpushed_commits");
+
+            if (!repo_name || repo_name->type != JSON_STRING) continue;
+            if (!commits || commits->type != JSON_ARRAY || commits->value.arr_val->count == 0) continue;
+
+            // Get repository name
+            json_value_t* repo_path = get_nested_value(repo, "path");
+            const char* display_name = repo_name->value.str_val;
+            if (repo_path && repo_path->type == JSON_STRING) {
+                const char* path = repo_path->value.str_val;
+                const char* repo_name_from_path = strrchr(path, '/');
+                if (repo_name_from_path) {
+                    display_name = repo_name_from_path + 1;
+                }
+            }
+
+            // Add repository header
+            char header_buffer[512];
+            snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", display_name);
+            orch->data.pane2_items = realloc(orch->data.pane2_items, (orch->data.pane2_count + 1) * sizeof(char*));
+            orch->data.pane2_items[orch->data.pane2_count] = strdup(header_buffer);
+            orch->data.pane2_count++;
+
+            // Collect all files from all commits in this repository
+            char** repo_files = NULL;
+            size_t repo_file_count = 0;
+
             for (size_t j = 0; j < commits->value.arr_val->count; j++) {
                 json_value_t* commit = commits->value.arr_val->items[j];
                 if (commit->type != JSON_OBJECT) continue;
-                total_items += 1; // Commit info
-                json_value_t* files = get_nested_value(commit, "files_changed");
-                if (files && files->type == JSON_ARRAY) {
-                    // Count only non-submodule files
-                    for (size_t k = 0; k < files->value.arr_val->count; k++) {
-                        json_value_t* file = files->value.arr_val->items[k];
+
+                json_value_t* files_changed = get_nested_value(commit, "files_changed");
+                if (files_changed && files_changed->type == JSON_ARRAY) {
+                    for (size_t k = 0; k < files_changed->value.arr_val->count; k++) {
+                        json_value_t* file = files_changed->value.arr_val->items[k];
                         if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
-                            total_items++;
+                            repo_files = realloc(repo_files, (repo_file_count + 1) * sizeof(char*));
+                            repo_files[repo_file_count] = strdup(file->value.str_val);
+                            repo_file_count++;
+                        }
+                    }
+                }
+            }
+
+            // Build file tree for this repository
+            if (repo_file_count > 0) {
+                tree_node_t* file_tree = build_file_tree(repo_files, repo_file_count);
+                if (file_tree && file_tree->child_count > 0) {
+                    // Print tree nodes (with indentation for the repository)
+                    for (size_t j = 0; j < file_tree->child_count; j++) {
+                        int is_last = (j == file_tree->child_count - 1);
+                        print_tree_node(file_tree->children[j], 0, is_last,
+                                      "├── ", "└── ", "│   ", 60, 0, 1000,
+                                      &orch->data.pane2_items, &orch->data.pane2_count);
+                    }
+                }
+                cleanup_tree_node(file_tree);
+
+                // Cleanup repo files
+                for (size_t j = 0; j < repo_file_count; j++) {
+                    free(repo_files[j]);
+                }
+                free(repo_files);
+            }
+        }
+    } else {
+        // Original flat view logic
+        // Count total items needed (repository headers + commits + non-submodule files)
+        size_t total_items = 0;
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
+
+            json_value_t* commits = get_nested_value(repo, "unpushed_commits");
+            if (commits && commits->type == JSON_ARRAY) {
+                total_items += 1; // Repository header
+                for (size_t j = 0; j < commits->value.arr_val->count; j++) {
+                    json_value_t* commit = commits->value.arr_val->items[j];
+                    if (commit->type != JSON_OBJECT) continue;
+                    total_items += 1; // Commit info
+                    json_value_t* files = get_nested_value(commit, "files_changed");
+                    if (files && files->type == JSON_ARRAY) {
+                        // Count only non-submodule files
+                        for (size_t k = 0; k < files->value.arr_val->count; k++) {
+                            json_value_t* file = files->value.arr_val->items[k];
+                            if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
+                                total_items++;
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    orch->data.pane2_count = total_items;
-    orch->data.pane2_items = calloc(total_items, sizeof(char*));
+        orch->data.pane2_count = total_items;
+        orch->data.pane2_items = calloc(total_items, sizeof(char*));
 
-    // Parse committed not pushed data from each repository
-    size_t item_index = 0;
-    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
-        json_value_t* repo = repos->value.arr_val->items[i];
-        if (repo->type != JSON_OBJECT) continue;
+        // Parse committed not pushed data from each repository
+        size_t item_index = 0;
+        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+            json_value_t* repo = repos->value.arr_val->items[i];
+            if (repo->type != JSON_OBJECT) continue;
 
-        json_value_t* repo_name = get_nested_value(repo, "name");
-        json_value_t* commits = get_nested_value(repo, "unpushed_commits");
+            json_value_t* repo_name = get_nested_value(repo, "name");
+            json_value_t* commits = get_nested_value(repo, "unpushed_commits");
 
-        if (!repo_name || repo_name->type != JSON_STRING) continue;
-        if (!commits || commits->type != JSON_ARRAY) continue;
+            if (!repo_name || repo_name->type != JSON_STRING) continue;
+            if (!commits || commits->type != JSON_ARRAY) continue;
 
-        // Add repository header - use actual repo name from path if available
-        json_value_t* repo_path = get_nested_value(repo, "path");
-        char header_buffer[512];
-        if (repo_path && repo_path->type == JSON_STRING) {
-            // Extract repo name from path (last component after '/')
-            const char* path = repo_path->value.str_val;
-            const char* repo_name_from_path = strrchr(path, '/');
-            if (repo_name_from_path) {
-                repo_name_from_path++; // Skip the '/'
-                snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name_from_path);
+            // Add repository header - use actual repo name from path if available
+            json_value_t* repo_path = get_nested_value(repo, "path");
+            char header_buffer[512];
+            if (repo_path && repo_path->type == JSON_STRING) {
+                // Extract repo name from path (last component after '/')
+                const char* path = repo_path->value.str_val;
+                const char* repo_name_from_path = strrchr(path, '/');
+                if (repo_name_from_path) {
+                    repo_name_from_path++; // Skip the '/'
+                    snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name_from_path);
+                } else {
+                    snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name->value.str_val);
+                }
             } else {
                 snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name->value.str_val);
             }
-        } else {
-            snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name->value.str_val);
-        }
-        orch->data.pane2_items[item_index++] = strdup(header_buffer);
+            orch->data.pane2_items[item_index++] = strdup(header_buffer);
 
-        // Add each commit and its files
-        for (size_t j = 0; j < commits->value.arr_val->count; j++) {
-            json_value_t* commit = commits->value.arr_val->items[j];
-            if (commit->type != JSON_OBJECT) continue;
+            // Add each commit and its files
+            for (size_t j = 0; j < commits->value.arr_val->count; j++) {
+                json_value_t* commit = commits->value.arr_val->items[j];
+                if (commit->type != JSON_OBJECT) continue;
 
-            json_value_t* commit_info = get_nested_value(commit, "commit_info");
-            json_value_t* files_changed = get_nested_value(commit, "files_changed");
+                json_value_t* commit_info = get_nested_value(commit, "commit_info");
+                json_value_t* files_changed = get_nested_value(commit, "files_changed");
 
-            // Add commit info
-            if (commit_info && commit_info->type == JSON_STRING) {
-                char commit_buffer[1024];
-                // Truncate commit info if too long
-                const char* info = commit_info->value.str_val;
-                if (strlen(info) > 60) {
-                    snprintf(commit_buffer, sizeof(commit_buffer), "└── %.60s...", info);
-                } else {
-                    snprintf(commit_buffer, sizeof(commit_buffer), "└── %s", info);
+                // Add commit info
+                if (commit_info && commit_info->type == JSON_STRING) {
+                    char commit_buffer[1024];
+                    // Truncate commit info if too long
+                    const char* info = commit_info->value.str_val;
+                    if (strlen(info) > 60) {
+                        snprintf(commit_buffer, sizeof(commit_buffer), "└── %.60s...", info);
+                    } else {
+                        snprintf(commit_buffer, sizeof(commit_buffer), "└── %s", info);
+                    }
+                    orch->data.pane2_items[item_index++] = strdup(commit_buffer);
                 }
-                orch->data.pane2_items[item_index++] = strdup(commit_buffer);
-            }
 
-            // Add files changed (skip submodules)
-            if (files_changed && files_changed->type == JSON_ARRAY) {
-                for (size_t k = 0; k < files_changed->value.arr_val->count; k++) {
-                    json_value_t* file = files_changed->value.arr_val->items[k];
-                    if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
-                        char file_buffer[1024];
-                        snprintf(file_buffer, sizeof(file_buffer), "    ├── %s", file->value.str_val);
-                        orch->data.pane2_items[item_index++] = strdup(file_buffer);
+                // Add files changed (skip submodules)
+                if (files_changed && files_changed->type == JSON_ARRAY) {
+                    for (size_t k = 0; k < files_changed->value.arr_val->count; k++) {
+                        json_value_t* file = files_changed->value.arr_val->items[k];
+                        if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
+                            char file_buffer[1024];
+                            snprintf(file_buffer, sizeof(file_buffer), "    ├── %s", file->value.str_val);
+                            orch->data.pane2_items[item_index++] = strdup(file_buffer);
+                        }
                     }
                 }
             }

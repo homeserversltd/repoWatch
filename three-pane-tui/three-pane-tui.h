@@ -12,6 +12,12 @@
 #include <time.h>
 #include "../json-utils/json-utils.h"
 
+// View mode enumeration for file display
+typedef enum {
+    VIEW_FLAT,
+    VIEW_TREE
+} view_mode_t;
+
 // Style configuration for file colorization
 typedef struct {
     int directory_color;
@@ -53,9 +59,11 @@ typedef struct {
 typedef struct {
     char* title;
     char* exit_keys;
+    char* toggle_keys;
     char* pane1_title;
     char* pane2_title;
     char* pane3_title;
+    view_mode_t default_view;
     style_config_t styles;
 } three_pane_tui_config_t;
 
@@ -85,6 +93,7 @@ typedef struct {
     char* module_path;
     three_pane_tui_config_t config;
     three_pane_data_t data;
+    view_mode_t current_view;
 } three_pane_tui_orchestrator_t;
 
 // Global flag for redraw requests
@@ -117,7 +126,7 @@ int load_styles(style_config_t* styles, const char* module_path);
 
 // Data module functions
 int load_git_submodules_data(three_pane_tui_orchestrator_t* orch);
-int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch);
+int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_mode);
 int load_dirty_files_data(three_pane_tui_orchestrator_t* orch);
 int load_hardcoded_data(three_pane_tui_orchestrator_t* orch);
 

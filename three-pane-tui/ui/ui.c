@@ -220,7 +220,8 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     move_cursor(1, 1);
     set_color(orch->config.styles.ui.title_color);
     set_bold();
-    printf("%s", orch->config.title);
+    const char* view_name = (orch->current_view == VIEW_FLAT) ? "FLAT" : "TREE";
+    printf("%s (%s)", orch->config.title, view_name);
     reset_colors();
 
     // Horizontal line under the header
@@ -272,7 +273,9 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     // Footer at bottom (after the horizontal separator)
     move_cursor(height, 1);
     set_color(32); // Green for footer text
-    printf("Q: exit - Three Pane TUI Demo");
+    const char* current_view = (orch->current_view == VIEW_FLAT) ? "FLAT" : "TREE";
+    const char* other_view = (orch->current_view == VIEW_FLAT) ? "TREE" : "FLAT";
+    printf("Q: exit | SPACE: toggle %s/%s view", other_view, current_view);
     reset_colors();
 
     fflush(stdout);

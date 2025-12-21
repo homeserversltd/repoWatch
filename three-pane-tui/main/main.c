@@ -16,9 +16,12 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
     // Extract config values with defaults
     orch->config.title = expandvars("Three Pane TUI Demo");
     orch->config.exit_keys = strdup("qQ");
+    orch->config.toggle_keys = strdup(" ");
     orch->config.pane1_title = expandvars("Left Pane");
     orch->config.pane2_title = expandvars("Center Pane");
     orch->config.pane3_title = expandvars("Right Pane");
+    orch->config.default_view = VIEW_FLAT;
+    orch->current_view = orch->config.default_view;
 
     // Load styles
     if (load_styles(&orch->config.styles, orch->module_path) != 0) {
@@ -75,7 +78,7 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
     orch->data.pane3_scroll.scroll_position = 0;
     orch->data.pane3_scroll.total_items = orch->data.pane3_count;
 
-    if (load_committed_not_pushed_data(orch) != 0) {
+    if (load_committed_not_pushed_data(orch, orch->current_view) != 0) {
         fprintf(stderr, "Warning: Failed to load committed-not-pushed data, using fallback\n");
         // Could add fallback data here if needed
     }
@@ -100,6 +103,7 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
         // Cleanup config
         free(orch->config.title);
         free(orch->config.exit_keys);
+        free(orch->config.toggle_keys);
         free(orch->config.pane1_title);
         free(orch->config.pane2_title);
         free(orch->config.pane3_title);
@@ -228,6 +232,13 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                 // Check for exit keys
                 if (c == 'q' || c == 'Q' || c == 27) { // 27 is Escape
                     running = 0;
+                } else if (c == ' ') {
+                    // Toggle view mode
+                    orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
+                    // Reload data with new view mode
+                    if (load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                        draw_tui_overlay(orch);
+                    }
                 }
             }
         }
