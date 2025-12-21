@@ -1,22 +1,22 @@
-# repoWatch Architecture - Zig Rewrite
+# repoWatch Architecture - C Implementation
 
 **Category**: `architecture`
-**Tags**: `zig`, `tui`, `git`, `file-watching`, `system-architecture`, `rewrite`
+**Tags**: `c`, `tui`, `git`, `file-watching`, `system-architecture`, `implementation`
 
 ## Summary
 
-Complete architectural specification for rewriting repoWatch in Zig using the infinite index system. This document defines the modular architecture, component relationships, and implementation strategy for a native Zig implementation that eliminates all Python dependencies.
+Complete architectural specification for implementing repoWatch in C using the infinite index system. This document defines the modular architecture, component relationships, and implementation strategy for a Linux-native C implementation that eliminates all Python dependencies.
 
 ## Context
 
-repoWatch is being rewritten from Python to Zig to achieve:
+repoWatch is being implemented in C to achieve:
 - **Zero runtime dependencies** - Single static binary
 - **Native performance** - Sub-millisecond response times
-- **Cross-platform compatibility** - Linux, macOS, Windows support
-- **Memory safety** - Zig's compile-time guarantees
+- **Linux-native** - Optimized for Linux systems with inotify
+- **Memory efficiency** - Manual memory management and optimization
 - **Maintainability** - Clean modular architecture using infinite index pattern
 
-The rewrite eliminates:
+The implementation eliminates:
 - Textual (Python TUI framework)
 - watchdog (Python file watching)
 - GitPython (Python git bindings)
@@ -38,45 +38,45 @@ The rewrite eliminates:
 - **Dependency injection**: Configuration passed from parent to child
 - **Error boundaries**: Failures contained within module scope
 
-### 3. Native Zig Implementation
-- **No external dependencies**: Pure Zig standard library usage
-- **Cross-platform**: Unified API across operating systems
-- **Performance-first**: Zero-cost abstractions and optimizations
-- **Memory safety**: Compile-time guarantees and manual memory management
+### 3. Native C Implementation
+- **No external dependencies**: Pure C standard library and system calls
+- **Linux-optimized**: Direct system call integration for Linux systems
+- **Performance-first**: Low-level optimizations and efficient memory usage
+- **Memory efficiency**: Manual memory management and resource control
 
 ---
 
 ## CORE ARCHITECTURE COMPONENTS
 
-### Root Orchestrator (`index.py`)
+### Root Orchestrator (`index.c`)
 Entry point that coordinates all subsystems:
 - **Configuration loading** from index.json
 - **Environment setup** and path resolution
 - **Child module execution** in dependency order
 - **Error handling** and graceful shutdown
 
-### Git Subsystem (`git/index.py`)
+### Git Subsystem (`git/index.c`, `git/git.h`)
 Native git repository operations:
 - **Repository validation** and initialization
 - **Status operations** (staged, unstaged, untracked files)
 - **Commit enumeration** with file extraction
 - **Error handling** for corrupted repositories
 
-### File System Subsystem (`fs/index.py`)
-Cross-platform file watching:
-- **Inotify integration** (Linux) / FSEvents (macOS) / ReadDirectoryChangesW (Windows)
+### File System Subsystem (`fs/index.c`, `fs/fs.h`)
+Linux-native file watching:
+- **Inotify integration** for Linux systems
 - **Event filtering** (exclude .git, temp files, directories)
 - **Path normalization** (absolute → relative conversion)
 - **Event queuing** for UI updates
 
-### TUI Subsystem (`tui/index.py`)
+### TUI Subsystem (`tui/index.c`, `tui/tui.h`)
 Terminal user interface:
 - **Three-pane layout** (uncommitted, committed, active changes)
 - **Real-time updates** without screen flicker
 - **Animation system** (1-second spinning indicators)
 - **Keyboard handling** (navigation, quit commands)
 
-### Animation Subsystem (`animation/index.py`)
+### Animation Subsystem (`animation/index.c`, `animation/animation.h`)
 Visual feedback system:
 - **Frame management** (10 FPS spinner animations)
 - **Timing coordination** (1-second active file duration)
@@ -90,49 +90,56 @@ Visual feedback system:
 ```
 repoWatch/
 ├── index.json          # Root configuration
-├── index.py           # Main orchestrator
+├── index.c            # Main orchestrator
+├── index.h            # Main header
 ├── git/
 │   ├── index.json     # Git subsystem config
-│   ├── index.py       # Git operations
+│   ├── index.c        # Git operations
+│   ├── git.h          # Git subsystem header
 │   ├── status/
 │   │   ├── index.json # Status operations config
-│   │   └── index.py   # Status implementation
+│   │   ├── index.c    # Status implementation
+│   │   └── status.h   # Status header
 │   └── commits/
 │       ├── index.json # Commit operations config
-│       └── index.py   # Commit implementation
+│       ├── index.c    # Commit implementation
+│       └── commits.h  # Commits header
 ├── fs/
 │   ├── index.json     # File system config
-│   ├── index.py       # File watching orchestrator
-│   ├── linux/
-│   │   ├── index.json # Linux-specific config
-│   │   └── index.py   # inotify implementation
-│   ├── macos/
-│   │   ├── index.json # macOS-specific config
-│   │   └── index.py   # FSEvents implementation
-│   └── windows/
-│       ├── index.json # Windows-specific config
-│       └── index.py   # ReadDirectoryChangesW implementation
+│   ├── index.c        # File watching orchestrator
+│   ├── fs.h           # File system header
+│   └── linux/
+│       ├── index.json # Linux-specific config
+│       ├── index.c    # inotify implementation
+│       └── linux.h    # Linux-specific header
 ├── tui/
 │   ├── index.json     # TUI config
-│   ├── index.py       # TUI orchestrator
+│   ├── index.c        # TUI orchestrator
+│   ├── tui.h          # TUI header
 │   ├── layout/
 │   │   ├── index.json # Layout config
-│   │   └── index.py   # Three-pane layout
+│   │   ├── index.c    # Three-pane layout
+│   │   └── layout.h   # Layout header
 │   ├── widgets/
 │   │   ├── index.json # Widget config
-│   │   └── index.py   # UI components
+│   │   ├── index.c    # UI components
+│   │   └── widgets.h  # Widgets header
 │   └── input/
 │       ├── index.json # Input config
-│       └── index.py   # Keyboard handling
+│       ├── index.c    # Keyboard handling
+│       └── input.h    # Input header
 └── animation/
     ├── index.json     # Animation config
-    ├── index.py       # Animation system
+    ├── index.c        # Animation system
+    ├── animation.h    # Animation header
     ├── frames/
     │   ├── index.json # Frame data config
-    │   └── index.py   # Spinner frames
+    │   ├── index.c    # Spinner frames
+    │   └── frames.h   # Frames header
     └── timing/
         ├── index.json # Timing config
-        └── index.py   # Duration management
+        ├── index.c    # Duration management
+        └── timing.h   # Timing header
 ```
 
 ---
@@ -250,7 +257,7 @@ TUI Update (refresh active changes pane)
     "watch_path": "${repo_path}",
     "exclude_patterns": [".git", "*.tmp", "*.swp"]
   },
-  "children": ["${platform}"],
+  "children": ["linux"],
   "execution": {
     "mode": "sequential",
     "continue_on_error": false,
@@ -269,83 +276,96 @@ TUI Update (refresh active changes pane)
 ## COMPONENT INTERFACES
 
 ### Git Interface
-```zig
-pub const GitSubsystem = struct {
-    repo_path: []const u8,
-    allocator: std.mem.Allocator,
+```c
+typedef struct {
+    char* repo_path;
+    // Internal state
+} git_subsystem_t;
 
-    pub fn init(allocator: std.mem.Allocator, config: Config) !GitSubsystem
-    pub fn deinit(self: *GitSubsystem) void
-    pub fn validateRepo(self: GitSubsystem) !bool
-    pub fn getUncommittedFiles(self: GitSubsystem, allocator: std.mem.Allocator) ![][]const u8
-    pub fn getRecentCommits(self: GitSubsystem, since: i64, max_count: usize, allocator: std.mem.Allocator) ![]CommitInfo
-};
+typedef struct {
+    char* hash;
+    char* message;
+    char** files;
+    size_t file_count;
+    time_t timestamp;
+} commit_info_t;
 
-pub const CommitInfo = struct {
-    hash: []const u8,
-    message: []const u8,
-    files: [][]const u8,
-    timestamp: i64,
-};
+// Function declarations
+int git_init(git_subsystem_t* git, const char* repo_path);
+void git_cleanup(git_subsystem_t* git);
+int git_validate_repo(git_subsystem_t* git);
+char** git_get_uncommitted_files(git_subsystem_t* git, size_t* count);
+commit_info_t* git_get_recent_commits(git_subsystem_t* git, time_t since, size_t max_count, size_t* result_count);
 ```
 
 ### File System Interface
-```zig
-pub const FsSubsystem = struct {
-    watch_path: []const u8,
-    allocator: std.mem.Allocator,
-    callback: *const fn (event_type: EventType, file_path: []const u8) void,
+```c
+typedef enum {
+    EVENT_MODIFIED,
+    EVENT_CREATED,
+    EVENT_DELETED,
+    EVENT_MOVED,
+} event_type_t;
 
-    pub fn init(allocator: std.mem.Allocator, config: Config, callback: anytype) !FsSubsystem
-    pub fn deinit(self: *FsSubsystem) void
-    pub fn startWatching(self: *FsSubsystem) !void
-    pub fn stopWatching(self: *FsSubsystem) void
-};
+typedef struct {
+    char* watch_path;
+    int inotify_fd;
+    void (*callback)(event_type_t event_type, const char* file_path);
+    // Internal state
+} fs_subsystem_t;
 
-pub const EventType = enum {
-    modified,
-    created,
-    deleted,
-    moved,
-};
+// Function declarations
+int fs_init(fs_subsystem_t* fs, const char* watch_path, void (*callback)(event_type_t, const char*));
+void fs_cleanup(fs_subsystem_t* fs);
+int fs_start_watching(fs_subsystem_t* fs);
+void fs_stop_watching(fs_subsystem_t* fs);
 ```
 
 ### TUI Interface
-```zig
-pub const TuiSubsystem = struct {
-    allocator: std.mem.Allocator,
-    terminal: Terminal,
+```c
+typedef struct {
+    char* file_path;
+    char spinner_frame;
+    time_t timestamp;
+} active_change_t;
 
-    pub fn init(allocator: std.mem.Allocator, config: Config) !TuiSubsystem
-    pub fn deinit(self: *TuiSubsystem) void
-    pub fn render(self: *TuiSubsystem) !void
-    pub fn updateUncommittedFiles(self: *TuiSubsystem, files: [][]const u8) !void
-    pub fn updateCommittedFiles(self: *TuiSubsystem, files: [][]const u8) !void
-    pub fn updateActiveChanges(self: *TuiSubsystem, changes: []ActiveChange) !void
-    pub fn handleInput(self: *TuiSubsystem) !InputEvent
-};
+typedef struct {
+    // Terminal state
+    char** uncommitted_files;
+    size_t uncommitted_count;
+    char** committed_files;
+    size_t committed_count;
+    active_change_t* active_changes;
+    size_t active_count;
+} tui_subsystem_t;
 
-pub const ActiveChange = struct {
-    file_path: []const u8,
-    spinner_frame: u8,
-    timestamp: i64,
-};
+// Function declarations
+int tui_init(tui_subsystem_t* tui);
+void tui_cleanup(tui_subsystem_t* tui);
+int tui_render(tui_subsystem_t* tui);
+int tui_update_uncommitted_files(tui_subsystem_t* tui, char** files, size_t count);
+int tui_update_committed_files(tui_subsystem_t* tui, char** files, size_t count);
+int tui_update_active_changes(tui_subsystem_t* tui, active_change_t* changes, size_t count);
+int tui_handle_input(tui_subsystem_t* tui);
 ```
 
 ### Animation Interface
-```zig
-pub const AnimationSubsystem = struct {
-    allocator: std.mem.Allocator,
-    active_changes: std.StringHashMap(i64),
-    frame_index: u8,
-    frames: []const u8,
+```c
+typedef struct {
+    // Hash map equivalent for active changes
+    char** active_files;
+    time_t* timestamps;
+    size_t active_count;
+    size_t frame_index;
+    const char* frames[10];
+} animation_subsystem_t;
 
-    pub fn init(allocator: std.mem.Allocator, config: Config) !AnimationSubsystem
-    pub fn deinit(self: *AnimationSubsystem) void
-    pub fn addActiveFile(self: *AnimationSubsystem, file_path: []const u8) !void
-    pub fn update(self: *AnimationSubsystem, current_time: i64) ![]ActiveChange
-    pub fn getFrame(self: AnimationSubsystem) u8
-};
+// Function declarations
+int animation_init(animation_subsystem_t* anim);
+void animation_cleanup(animation_subsystem_t* anim);
+int animation_add_active_file(animation_subsystem_t* anim, const char* file_path);
+active_change_t* animation_update(animation_subsystem_t* anim, time_t current_time, size_t* result_count);
+char animation_get_frame(animation_subsystem_t* anim);
 ```
 
 ---
@@ -353,16 +373,15 @@ pub const AnimationSubsystem = struct {
 ## ERROR HANDLING STRATEGY
 
 ### Error Types
-```zig
-pub const RepoWatchError = error{
-    InvalidRepository,
-    GitOperationFailed,
-    FileSystemError,
-    TerminalNotSupported,
-    OutOfMemory,
-    PermissionDenied,
-    InvalidConfiguration,
-};
+```c
+#define REPOWATCH_SUCCESS 0
+#define REPOWATCH_INVALID_REPOSITORY -1
+#define REPOWATCH_GIT_OPERATION_FAILED -2
+#define REPOWATCH_FILESYSTEM_ERROR -3
+#define REPOWATCH_TERMINAL_NOT_SUPPORTED -4
+#define REPOWATCH_OUT_OF_MEMORY -5
+#define REPOWATCH_PERMISSION_DENIED -6
+#define REPOWATCH_INVALID_CONFIGURATION -7
 ```
 
 ### Error Recovery
@@ -401,74 +420,58 @@ pub const RepoWatchError = error{
 
 ---
 
-## CROSS-PLATFORM ARCHITECTURE
+## LINUX-NATIVE ARCHITECTURE
 
-### Platform Detection
-```zig
-const builtin = @import("builtin");
-const target = builtin.target;
+### Linux-Specific Implementation
+- **inotify**: Direct C integration with Linux kernel file watching
+- **System calls**: Raw POSIX system calls for maximum performance
+- **Kernel-level events**: Immediate notification of file system changes
 
-pub const Platform = enum {
-    linux,
-    macos,
-    windows,
-    unknown,
-
-    pub fn detect() Platform {
-        return switch (target.os.tag) {
-            .linux => .linux,
-            .macos => .macos,
-            .windows => .windows,
-            else => .unknown,
-        };
-    }
-};
-```
-
-### Platform-Specific Implementations
-- **Linux**: inotify for efficient file watching
-- **macOS**: FSEvents for native file monitoring
-- **Windows**: ReadDirectoryChangesW for change notifications
-- **Fallback**: Polling-based implementation for unsupported platforms
-
-### Unified API
-All platform implementations conform to the same interface, allowing the rest of the system to remain platform-agnostic.
+### Linux-Optimized Design
+The C implementation is specifically designed for Linux systems, leveraging:
+- Direct inotify system call integration
+- Linux-specific file system behaviors
+- Native terminal control sequences
+- Systemd integration potential
 
 ---
 
 ## BUILD SYSTEM ARCHITECTURE
 
-### Zig Build Configuration
-```zig
-// build.zig
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+### C Build Configuration
+```makefile
+# Makefile
+CC = gcc
+CFLAGS = -std=c99 -Wall -Wextra -O2 -I.
+LDFLAGS =
 
-    const exe = b.addExecutable(.{
-        .name = "repowatch",
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+SRC = $(wildcard */*.c) $(wildcard */*/*.c) main.c
+OBJ = $(SRC:.c=.o)
+TARGET = repowatch
 
-    // Add dependencies
-    exe.addIncludePath("src");
+$(TARGET): $(OBJ)
+	$(CC) $(OBJ) -o $(TARGET) $(LDFLAGS)
 
-    // Install
-    b.installArtifact(exe);
-}
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(OBJ) $(TARGET)
+
+install: $(TARGET)
+	install $(TARGET) /usr/local/bin/
+
+.PHONY: clean install
 ```
 
 ### Build Targets
-- **Debug**: Full debugging, safety checks enabled
-- **ReleaseSafe**: Optimizations enabled, safety checks enabled
-- **ReleaseFast**: Maximum optimizations, minimal safety checks
-- **ReleaseSmall**: Size optimizations, stripped binary
+- **Debug**: Full debugging with -g, no optimizations
+- **Release**: Optimized build with -O2, stripped binary
+- **Static**: Statically linked binary for maximum portability
 
 ### Cross-Compilation
 - **Native builds** for development platform
-- **Cross-compilation** for distribution targets
+- **Cross-compilation** for different Linux architectures
 - **Static linking** for dependency-free binaries
 
 ---
@@ -483,21 +486,21 @@ pub fn build(b: *std.Build) void {
 
 ### Integration Testing
 - **End-to-end workflows**: File change → UI update cycle
-- **Platform compatibility**: Automated testing on all target platforms
-- **Load testing**: High-frequency file operations
-- **Longevity testing**: Extended session stability
+- **Linux-specific testing**: inotify behavior validation
+- **Load testing**: High-frequency file operations on Linux file systems
+- **Longevity testing**: Extended session stability on Linux systems
 
 ### Test Organization
 ```
 test/
 ├── unit/
-│   ├── git_test.zig
-│   ├── fs_test.zig
-│   ├── tui_test.zig
-│   └── animation_test.zig
+│   ├── git_test.c
+│   ├── fs_test.c
+│   ├── tui_test.c
+│   └── animation_test.c
 ├── integration/
-│   ├── workflow_test.zig
-│   └── platform_test.zig
+│   ├── workflow_test.c
+│   └── platform_test.c
 └── fixtures/
     ├── test_repo/
     └── mock_data/
@@ -534,21 +537,21 @@ chmod +x repowatch
 ## MIGRATION PATH
 
 ### Phase 1: Core Infrastructure (Month 1)
-1. **Git subsystem** implementation
-2. **File system watching** (Linux first)
+1. **Git subsystem** C implementation
+2. **File system watching** (Linux inotify)
 3. **Basic CLI interface** (no TUI)
 4. **Unit testing framework**
 
 ### Phase 2: Terminal UI (Month 2)
-1. **TUI framework** development
+1. **TUI framework** development in C
 2. **Three-pane layout** implementation
 3. **Real-time updates** integration
 4. **Keyboard navigation**
 
 ### Phase 3: Polish & Optimization (Month 3)
 1. **Animation system** completion
-2. **Cross-platform support** (macOS, Windows)
-3. **Performance optimization**
+2. **Performance optimization** for Linux
+3. **Memory management** refinement
 4. **Documentation and packaging**
 
 ### Phase 4: Production Release (Month 4)
@@ -563,7 +566,7 @@ chmod +x repowatch
 
 ### Functional Completeness
 - [ ] All features from Python implementation reproduced
-- [ ] Cross-platform compatibility (Linux/macOS/Windows)
+- [ ] Linux-native C implementation with inotify support
 - [ ] Zero runtime dependencies
 - [ ] Native performance (sub-millisecond response times)
 
@@ -585,8 +588,8 @@ chmod +x repowatch
 
 ### Technical Risks
 - **Complex TUI implementation**: Prototype early, build incrementally
-- **Cross-platform file watching**: Start with Linux, expand to other platforms
-- **Git parsing complexity**: Use proven parsing libraries, validate thoroughly
+- **inotify integration**: Ensure proper event handling and resource management
+- **Git parsing complexity**: Use proven parsing approaches, validate thoroughly
 
 ### Schedule Risks
 - **Learning curve**: Allocate time for Zig proficiency building
@@ -602,6 +605,6 @@ chmod +x repowatch
 
 ## CONCLUSION
 
-This architecture provides a solid foundation for rewriting repoWatch in Zig. The infinite index pattern ensures maintainable modularity, while Zig's native capabilities eliminate external dependencies and provide superior performance. The phased approach allows for incremental development and early validation of core functionality.
+This architecture provides a solid foundation for implementing repoWatch in C. The infinite index pattern ensures maintainable modularity, while C's native capabilities and Linux-specific optimizations eliminate external dependencies and provide superior performance. The phased approach allows for incremental development and early validation of core functionality.
 
-The resulting system will be a fast, reliable, and maintainable git repository monitor that demonstrates the power of native development with modern systems programming languages.
+The resulting system will be a fast, reliable, and maintainable Linux-native git repository monitor that leverages inotify for real-time file watching and demonstrates the power of native development with systems programming.

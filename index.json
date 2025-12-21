@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "repoWatch",
+    "description": "Linux-native git repository monitor with real-time file watching"
+  },
+  "paths": {
+    "repo_path": "${REPO_WATCH_REPO_PATH:-.}",
+    "config_dir": "${XDG_CONFIG_HOME:-~/.config}/repowatch",
+    "cache_dir": "${XDG_CACHE_HOME:-~/.cache}/repowatch"
+  },
+  "children": [
+    "hello",
+    "git",
+    "fs",
+    "tui",
+    "animation"
+  ],
+  "execution": {
+    "mode": "parallel",
+    "continue_on_error": false,
+    "parallel": true
+  },
+  "config": {
+    "session_timeout": 3600,
+    "max_commits": 20,
+    "animation_fps": 10,
+    "ui_refresh_rate": 2,
+    "terminal_width": 120,
+    "terminal_height": 30
+  }
+}

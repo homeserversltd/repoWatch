@@ -1,17 +1,17 @@
-# repoWatch Feature List - Zig Rewrite
+# repoWatch Feature List - C Implementation
 
 **Category**: `development-tools`
-**Tags**: `git`, `tui`, `file-watching`, `terminal-ui`, `repository-monitoring`, `zig-rewrite`
+**Tags**: `git`, `tui`, `file-watching`, `terminal-ui`, `repository-monitoring`, `c-implementation`
 
 ## Summary
 
-Complete feature specification for rewriting repoWatch in Zig. This document serves as the foundation for the architecture.md and implementation plan. All features are extracted from the working Python implementation.
+Complete feature specification for implementing repoWatch in C for Linux systems. This document serves as the foundation for the architecture.md and implementation plan. All features are extracted from the working Python implementation, optimized for Linux-native performance.
 
 ## Context
 
 repoWatch is a terminal user interface (TUI) application that provides real-time monitoring of git repository changes. The application displays file status information in a three-pane layout and uses file system watching to detect changes instantly.
 
-The current Python implementation uses Textual for the TUI, watchdog for file monitoring, and GitPython for git operations. The Zig rewrite will need to implement all core functionality natively.
+The current Python implementation uses Textual for the TUI, watchdog for file monitoring, and GitPython for git operations. The C implementation will need to implement all core functionality natively.
 
 ---
 
@@ -38,12 +38,12 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 
 ### 2. File System Watching
 
-**2.1 Inotify-Based Monitoring**
-- Watch entire repository directory recursively
-- Detect file modifications (on_modified)
-- Detect file creation (on_created)
-- Detect file deletion (on_deleted)
-- Detect file moves (on_moved)
+**2.1 Inotify-Based Monitoring (Linux)**
+- Watch entire repository directory recursively using inotify system calls
+- Detect file modifications (IN_MODIFY events)
+- Detect file creation (IN_CREATE events)
+- Detect file deletion (IN_DELETE events)
+- Detect file moves (IN_MOVED_FROM/TO events)
 
 **2.2 File Filtering**
 - Exclude directories from events
@@ -178,28 +178,28 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 
 ## IMPLEMENTATION-SPECIFIC FEATURES
 
-### 10. Zig-Specific Requirements
+### 10. C-Specific Requirements
 
 **10.1 Native File System Watching**
-- Implement inotify equivalent in Zig
-- Cross-platform file watching (Linux/macOS/Windows support)
+- Implement inotify integration in C
+- Linux-specific inotify system call integration
 - Low-level system call integration
 - Efficient event handling without external dependencies
 
-**10.2 Git Operations in Zig**
+**10.2 Git Operations in C**
 - Native git repository parsing
 - Implement git status commands
 - Parse git log output
 - Handle git object database access
 
 **10.3 Terminal UI Framework**
-- Implement TUI widgets in Zig
+- Implement TUI widgets in C
 - Handle terminal control sequences
 - Real-time display updates
 - Cross-terminal compatibility
 
-**10.4 Async Runtime**
-- Implement async event loops in Zig
+**10.4 Event Loop Management**
+- Implement event loops in C
 - Handle concurrent operations
 - Timer-based animations
 - Non-blocking I/O operations
@@ -207,15 +207,15 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 ### 11. Build & Deployment
 
 **11.1 Build System**
-- Zig build configuration
-- Dependency management
+- C compilation with GCC/Clang
+- Makefile-based build system
 - Cross-compilation support
 - Static binary generation
 
 **11.2 Packaging**
 - Single binary distribution
 - No runtime dependencies
-- Auto-installation of dependencies
+- Manual installation
 - Update mechanism
 
 ### 12. Testing Infrastructure
@@ -230,7 +230,7 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 - End-to-end repository monitoring
 - Terminal UI interaction testing
 - Performance benchmarking
-- Cross-platform compatibility
+- Linux compatibility testing
 
 ---
 
@@ -242,7 +242,7 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 - No Python dependencies (textual, watchdog, gitpython)
 - No external TUI libraries
 - No external git bindings
-- Pure Zig implementation
+- Pure C implementation
 
 **Complex Features**
 - No networking/remote repository support
@@ -251,9 +251,9 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 - No plugin system
 
 **Platform-Specific Features**
-- No Windows-specific optimizations initially
-- No macOS-specific features initially
-- Linux-first implementation
+- Linux-only implementation
+- No cross-platform compatibility requirements
+- Direct inotify integration without abstraction layers
 
 **Advanced UI Features**
 - No mouse support
@@ -282,7 +282,7 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 - [ ] No crashes on common error conditions
 - [ ] Graceful handling of corrupted repositories
 - [ ] Clean shutdown and resource cleanup
-- [ ] Cross-platform compatibility (Linux/macOS/Windows)
+- [ ] Linux-native reliability and performance
 
 ### User Experience Requirements
 - [ ] Intuitive three-pane layout
@@ -295,44 +295,44 @@ The current Python implementation uses Textual for the TUI, watchdog for file mo
 ## MIGRATION NOTES
 
 ### From Python Implementation
-- **Textual → Native Zig TUI**: Implement terminal widgets from scratch
-- **watchdog → Zig inotify**: Direct system call integration
-- **GitPython → Native Zig**: Parse git commands and object files directly
-- **asyncio → Zig async**: Use Zig's async runtime features
+- **Textual → Native C TUI**: Implement terminal widgets from scratch for Linux terminals
+- **watchdog → C inotify**: Direct Linux inotify system call integration
+- **GitPython → Native C**: Parse git commands and object files directly
+- **asyncio → C event loops**: Use C event loop and threading
 
 ### Architecture Changes
 - **Monolithic → Modular**: Break into separate components (git, fs, tui)
-- **Python OOP → Zig structs**: Convert classes to Zig data structures
-- **Dynamic → Static**: Compile-time optimizations where possible
+- **Python OOP → C structs**: Convert classes to C data structures
+- **Dynamic → Static**: Compile-time type checking
 - **Garbage collected → Manual memory**: Explicit memory management
 
 ### Performance Expectations
 - **Startup time**: < 100ms (vs Python's ~500ms)
-- **Memory usage**: < 10MB (vs Python's ~50MB+)
+- **Memory usage**: < 5MB (vs Python's ~50MB+)
 - **CPU usage**: < 1% during monitoring (vs Python's ~5%)
-- **Binary size**: < 5MB (vs Python's dependency requirements)
+- **Binary size**: < 500KB (vs Python's dependency requirements)
 
 ---
 
 ## DEVELOPMENT ROADMAP
 
 ### Phase 1: Core Infrastructure
-1. Git repository parsing and status operations
-2. File system watching implementation
+1. Git repository parsing and status operations in C
+2. File system watching implementation with inotify
 3. Basic terminal output (no TUI yet)
 
 ### Phase 2: Terminal UI
-1. Basic three-pane layout
+1. Basic three-pane layout in C
 2. Static file display (no real-time updates)
 3. Keyboard navigation framework
 
 ### Phase 3: Real-Time Features
 1. Live file watching integration
-2. Animation system implementation
+2. Animation system implementation in C
 3. Real-time UI updates
 
 ### Phase 4: Polish & Optimization
 1. Error handling and edge cases
-2. Performance optimizations
-3. Cross-platform compatibility
+2. Performance optimizations for Linux systems
+3. Memory management refinement
 4. Testing and documentation
