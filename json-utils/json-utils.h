@@ -62,6 +62,20 @@ void json_free(json_value_t* value);
 char* json_stringify(json_value_t* value);
 int json_write_file(const char* filename, json_value_t* value);
 
+// JSON creation functions
+json_value_t* json_create_null();
+json_value_t* json_create_bool(int value);
+json_value_t* json_create_number(double value);
+json_value_t* json_create_string(const char* value);
+json_value_t* json_create_array();
+json_value_t* json_create_object();
+
+// JSON array manipulation
+int json_array_add(json_value_t* array, json_value_t* value);
+
+// JSON object manipulation
+int json_object_set(json_value_t* object, const char* key, json_value_t* value);
+
 // Utility functions for index.json structure
 char** json_get_children(json_value_t* root, size_t* count);
 json_value_t* json_get_child_config(json_value_t* root, const char* child_name);

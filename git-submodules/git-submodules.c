@@ -6,6 +6,7 @@
 #include <time.h>
 #include <regex.h>
 #include <dirent.h>
+#include "../json-utils/json-utils.h"
 
 // Configuration structure
 typedef struct {
@@ -313,20 +314,27 @@ void collect_repo_status(status_collection_t* collection, const char* repo_path,
     }
 }
 
-// Generate report file
-void generate_report(status_collection_t* collection, const char* repo_path) {
-    FILE* report_file = fopen("git-submodules.report", "w");
-    if (!report_file) {
-        fprintf(stderr, "Failed to create report file\n");
+// Generate JSON report file
+void generate_json_report(status_collection_t* collection, const char* repo_path) {
+    // Create root JSON object
+    json_value_t* root = json_create_object();
+    if (!root) {
+        fprintf(stderr, "Failed to create JSON root object\n");
         return;
     }
 
-    fprintf(report_file, "Git Submodules Status Report\n");
-    fprintf(report_file, "=============================\n");
-    fprintf(report_file, "Root Repository: %s\n", repo_path);
-    fprintf(report_file, "Timestamp: %ld\n", time(NULL));
-    fprintf(report_file, "Total Repositories Checked: %zu\n", collection->count);
-    fprintf(report_file, "\n");
+    // Add metadata
+    json_object_set(root, "report_type", json_create_string("git_submodules_status"));
+    json_object_set(root, "root_repository", json_create_string(repo_path));
+    json_object_set(root, "timestamp", json_create_number((double)time(NULL)));
+    json_object_set(root, "total_repositories_checked", json_create_number((double)collection->count));
+
+    // Create repositories array
+    json_value_t* repos_array = json_create_array();
+    if (!repos_array) {
+        json_free(root);
+        return;
+    }
 
     int total_clean = 0;
     int total_dirty = 0;
@@ -334,28 +342,45 @@ void generate_report(status_collection_t* collection, const char* repo_path) {
     for (size_t i = 0; i < collection->count; i++) {
         repo_status_t* repo = &collection->repos[i];
 
-        fprintf(report_file, "Repository: %s\n", repo->name);
-        fprintf(report_file, "Path: %s\n", repo->path);
-        fprintf(report_file, "Status: %s\n", repo->is_clean ? "CLEAN" : "DIRTY");
+        // Create repository object
+        json_value_t* repo_obj = json_create_object();
+        if (!repo_obj) continue;
+
+        json_object_set(repo_obj, "name", json_create_string(repo->name));
+        json_object_set(repo_obj, "path", json_create_string(repo->path));
+        json_object_set(repo_obj, "is_clean", json_create_bool(repo->is_clean));
+        json_object_set(repo_obj, "last_check", json_create_number((double)repo->last_check));
 
         if (repo->is_clean) {
             total_clean++;
-            fprintf(report_file, "Changes: None\n");
+            json_object_set(repo_obj, "status", json_create_string("CLEAN"));
+            json_object_set(repo_obj, "changes", json_create_string(""));
         } else {
             total_dirty++;
-            fprintf(report_file, "Changes:\n");
-            if (repo->status && strlen(repo->status) > 0) {
-                fprintf(report_file, "%s", repo->status);
-            }
+            json_object_set(repo_obj, "status", json_create_string("DIRTY"));
+            json_object_set(repo_obj, "changes", json_create_string(repo->status ? repo->status : ""));
         }
-        fprintf(report_file, "\n");
+
+        json_array_add(repos_array, repo_obj);
     }
 
-    fprintf(report_file, "Summary:\n");
-    fprintf(report_file, "Clean repositories: %d\n", total_clean);
-    fprintf(report_file, "Dirty repositories: %d\n", total_dirty);
+    // Add repositories array to root
+    json_object_set(root, "repositories", repos_array);
 
-    fclose(report_file);
+    // Create summary object
+    json_value_t* summary = json_create_object();
+    if (summary) {
+        json_object_set(summary, "clean_repositories", json_create_number((double)total_clean));
+        json_object_set(summary, "dirty_repositories", json_create_number((double)total_dirty));
+        json_object_set(root, "summary", summary);
+    }
+
+    // Write JSON to file
+    if (json_write_file("git-submodules.report", root) != 0) {
+        fprintf(stderr, "Failed to write JSON report file\n");
+    }
+
+    json_free(root);
 }
 
 // Cleanup status collection
@@ -397,8 +422,8 @@ int main(int argc, char* argv[]) {
 
     printf("Checked %zu repositories\n", collection->count);
 
-    // Generate report
-    generate_report(collection, config->repo_path);
+    // Generate JSON report
+    generate_json_report(collection, config->repo_path);
     printf("Report generated\n");
 
     // Print summary to stdout

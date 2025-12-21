@@ -8,6 +8,109 @@ static const char* skip_whitespace(const char* str) {
     return str;
 }
 
+// Forward declarations for parsing functions
+static json_value_t* parse_value(const char** json);
+static json_object_t* parse_object(const char** json);
+static json_array_t* parse_array(const char** json);
+static char* parse_string(const char** json);
+
+// Parse any JSON value
+static json_value_t* parse_value(const char** json) {
+    *json = skip_whitespace(*json);
+
+    if (**json == '{') {
+        json_object_t* obj = parse_object(json);
+        if (!obj) return NULL;
+
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) {
+            json_object_free(obj);
+            return NULL;
+        }
+
+        result->type = JSON_OBJECT;
+        result->value.obj_val = obj;
+        return result;
+    } else if (**json == '[') {
+        json_array_t* arr = parse_array(json);
+        if (!arr) return NULL;
+
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) {
+            json_array_free(arr);
+            return NULL;
+        }
+
+        result->type = JSON_ARRAY;
+        result->value.arr_val = arr;
+        return result;
+    } else if (**json == '"') {
+        char* str = parse_string(json);
+        if (!str) return NULL;
+
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) {
+            free(str);
+            return NULL;
+        }
+
+        result->type = JSON_STRING;
+        result->value.str_val = str;
+        return result;
+    } else if (**json >= '0' && **json <= '9' || **json == '-') {
+        // Number
+        const char* start = *json;
+        if (**json == '-') (*json)++;
+
+        while (**json >= '0' && **json <= '9') (*json)++;
+        if (**json == '.') {
+            (*json)++;
+            while (**json >= '0' && **json <= '9') (*json)++;
+        }
+        if (**json == 'e' || **json == 'E') {
+            (*json)++;
+            if (**json == '+' || **json == '-') (*json)++;
+            while (**json >= '0' && **json <= '9') (*json)++;
+        }
+
+        char* num_str = strndup(start, *json - start);
+        if (!num_str) return NULL;
+
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) {
+            free(num_str);
+            return NULL;
+        }
+
+        result->type = JSON_NUMBER;
+        result->value.num_val = atof(num_str);
+        free(num_str);
+        return result;
+    } else if (strncmp(*json, "true", 4) == 0) {
+        *json += 4;
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) return NULL;
+        result->type = JSON_BOOL;
+        result->value.bool_val = 1;
+        return result;
+    } else if (strncmp(*json, "false", 5) == 0) {
+        *json += 5;
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) return NULL;
+        result->type = JSON_BOOL;
+        result->value.bool_val = 0;
+        return result;
+    } else if (strncmp(*json, "null", 4) == 0) {
+        *json += 4;
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) return NULL;
+        result->type = JSON_NULL;
+        return result;
+    }
+
+    return NULL;
+}
+
 // Parse JSON string
 static char* parse_string(const char** json) {
     if (**json != '"') return NULL;
@@ -32,7 +135,7 @@ static char* parse_string(const char** json) {
     return result;
 }
 
-// Parse JSON array (simplified for string arrays)
+// Parse JSON array
 static json_array_t* parse_array(const char** json) {
     if (**json != '[') return NULL;
     (*json)++; // Skip opening bracket
@@ -48,38 +151,31 @@ static json_array_t* parse_array(const char** json) {
     }
 
     *json = skip_whitespace(*json);
+    if (**json == ']') {
+        (*json)++; // Empty array
+        return arr;
+    }
+
     while (**json && **json != ']') {
-        if (**json == '"') {
-            // String value
-            char* str = parse_string(json);
-            if (!str) {
-                json_array_free(arr);
-                return NULL;
-            }
-
-            json_value_t* val = calloc(1, sizeof(json_value_t));
-            if (!val) {
-                free(str);
-                json_array_free(arr);
-                return NULL;
-            }
-
-            val->type = JSON_STRING;
-            val->value.str_val = str;
-
-            // Resize array if needed
-            if (arr->count >= arr->capacity) {
-                arr->capacity *= 2;
-                arr->items = realloc(arr->items, sizeof(json_value_t*) * arr->capacity);
-                if (!arr->items) {
-                    json_free(val);
-                    json_array_free(arr);
-                    return NULL;
-                }
-            }
-
-            arr->items[arr->count++] = val;
+        // Parse any JSON value
+        json_value_t* val = parse_value(json);
+        if (!val) {
+            json_array_free(arr);
+            return NULL;
         }
+
+        // Resize array if needed
+        if (arr->count >= arr->capacity) {
+            arr->capacity *= 2;
+            arr->items = realloc(arr->items, sizeof(json_value_t*) * arr->capacity);
+            if (!arr->items) {
+                json_free(val);
+                json_array_free(arr);
+                return NULL;
+            }
+        }
+
+        arr->items[arr->count++] = val;
 
         *json = skip_whitespace(*json);
         if (**json == ',') {
@@ -139,69 +235,8 @@ static json_object_t* parse_object(const char** json) {
 
         *json = skip_whitespace(*json);
 
-        json_value_t* value = NULL;
-
-        // Parse value based on type
-        if (**json == '"') {
-            char* str = parse_string(json);
-            if (str) {
-                value = calloc(1, sizeof(json_value_t));
-                if (value) {
-                    value->type = JSON_STRING;
-                    value->value.str_val = str;
-                } else {
-                    free(str);
-                }
-            }
-        } else if (**json == '[') {
-            json_array_t* arr = parse_array(json);
-            if (arr) {
-                value = calloc(1, sizeof(json_value_t));
-                if (value) {
-                    value->type = JSON_ARRAY;
-                    value->value.arr_val = arr;
-                } else {
-                    json_array_free(arr);
-                }
-            }
-        } else if (**json == '{') {
-            json_object_t* child_obj = parse_object(json);
-            if (child_obj) {
-                value = calloc(1, sizeof(json_value_t));
-                if (value) {
-                    value->type = JSON_OBJECT;
-                    value->value.obj_val = child_obj;
-                } else {
-                    json_object_free(child_obj);
-                }
-            }
-        } else if (strncmp(*json, "true", 4) == 0) {
-            value = calloc(1, sizeof(json_value_t));
-            if (value) {
-                value->type = JSON_BOOL;
-                value->value.bool_val = 1;
-            }
-            *json += 4;
-        } else if (strncmp(*json, "false", 5) == 0) {
-            value = calloc(1, sizeof(json_value_t));
-            if (value) {
-                value->type = JSON_BOOL;
-                value->value.bool_val = 0;
-            }
-            *json += 5;
-        } else if (**json >= '0' && **json <= '9') {
-            // Simple number parsing
-            char* end;
-            strtod(*json, &end);
-            value = calloc(1, sizeof(json_value_t));
-            if (value) {
-                value->type = JSON_NUMBER;
-                value->value.num_val = strtod(*json, &end);
-            }
-            *json = end;
-        } else {
-            printf("Debug: Unknown value type, char: '%c' (%d)\n", **json, (int)**json);
-        }
+        // Parse value using the unified parse_value function
+        json_value_t* value = parse_value(json);
 
         if (!value) {
             free(key);
@@ -268,6 +303,19 @@ json_value_t* json_parse_string(const char* json_str) {
 
         result->type = JSON_OBJECT;
         result->value.obj_val = obj;
+        return result;
+    } else if (*ptr == '[') {
+        json_array_t* arr = parse_array(&ptr);
+        if (!arr) return NULL;
+
+        json_value_t* result = calloc(1, sizeof(json_value_t));
+        if (!result) {
+            json_array_free(arr);
+            return NULL;
+        }
+
+        result->type = JSON_ARRAY;
+        result->value.arr_val = arr;
         return result;
     }
 
@@ -413,19 +461,196 @@ int index_json_update_children(const char* path, char** children, size_t count) 
 }
 
 char* json_stringify(json_value_t* value) {
-    // Simplified stringify - only handles basic cases needed for index.json
     if (!value) return NULL;
 
-    // This is a placeholder implementation
-    // Full JSON stringify would be complex
-    return strdup("{}");
+    switch (value->type) {
+        case JSON_NULL:
+            return strdup("null");
+
+        case JSON_BOOL:
+            return value->value.bool_val ? strdup("true") : strdup("false");
+
+        case JSON_NUMBER: {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%.17g", value->value.num_val);
+            return strdup(buf);
+        }
+
+        case JSON_STRING: {
+            if (!value->value.str_val) return strdup("\"\"");
+
+            // Calculate size needed for escaped string
+            size_t len = strlen(value->value.str_val);
+            size_t escaped_len = len * 2 + 3; // worst case: every char escaped + quotes + null
+            char* result = malloc(escaped_len);
+            if (!result) return NULL;
+
+            char* out = result;
+            *out++ = '"';
+
+            for (const char* p = value->value.str_val; *p; p++) {
+                switch (*p) {
+                    case '"': *out++ = '\\'; *out++ = '"'; break;
+                    case '\\': *out++ = '\\'; *out++ = '\\'; break;
+                    case '\b': *out++ = '\\'; *out++ = 'b'; break;
+                    case '\f': *out++ = '\\'; *out++ = 'f'; break;
+                    case '\n': *out++ = '\\'; *out++ = 'n'; break;
+                    case '\r': *out++ = '\\'; *out++ = 'r'; break;
+                    case '\t': *out++ = '\\'; *out++ = 't'; break;
+                    default:
+                        if (*p < 32) {
+                            // Control characters - escape as \uXXXX
+                            out += sprintf(out, "\\u%04x", (unsigned char)*p);
+                        } else {
+                            *out++ = *p;
+                        }
+                        break;
+                }
+            }
+
+            *out++ = '"';
+            *out = '\0';
+            return result;
+        }
+
+        case JSON_ARRAY: {
+            json_array_t* arr = value->value.arr_val;
+            if (!arr) return strdup("[]");
+
+            size_t total_size = 3; // [] and null
+            char** items = malloc(arr->count * sizeof(char*));
+            if (!items) return NULL;
+
+            for (size_t i = 0; i < arr->count; i++) {
+                items[i] = json_stringify(arr->items[i]);
+                if (!items[i]) {
+                    for (size_t j = 0; j < i; j++) free(items[j]);
+                    free(items);
+                    return NULL;
+                }
+                total_size += strlen(items[i]) + 1; // + comma or closing bracket
+            }
+
+            char* result = malloc(total_size);
+            if (!result) {
+                for (size_t i = 0; i < arr->count; i++) free(items[i]);
+                free(items);
+                return NULL;
+            }
+
+            char* out = result;
+            *out++ = '[';
+
+            for (size_t i = 0; i < arr->count; i++) {
+                if (i > 0) *out++ = ',';
+                strcpy(out, items[i]);
+                out += strlen(items[i]);
+                free(items[i]);
+            }
+
+            *out++ = ']';
+            *out = '\0';
+
+            free(items);
+            return result;
+        }
+
+        case JSON_OBJECT: {
+            json_object_t* obj = value->value.obj_val;
+            if (!obj) return strdup("{}");
+
+            size_t total_size = 3; // {} and null
+            char** keys = malloc(obj->count * sizeof(char*));
+            char** values = malloc(obj->count * sizeof(char*));
+            if (!keys || !values) {
+                free(keys);
+                free(values);
+                return NULL;
+            }
+
+            for (size_t i = 0; i < obj->count; i++) {
+                json_entry_t* entry = obj->entries[i];
+
+                // Stringify key
+                size_t key_len = strlen(entry->key) * 2 + 3; // escaped + quotes + null
+                keys[i] = malloc(key_len);
+                if (!keys[i]) goto object_error;
+
+                char* key_out = keys[i];
+                *key_out++ = '"';
+                for (const char* p = entry->key; *p; p++) {
+                    if (*p == '"' || *p == '\\') *key_out++ = '\\';
+                    *key_out++ = *p;
+                }
+                *key_out++ = '"';
+                *key_out = '\0';
+
+                // Stringify value
+                values[i] = json_stringify(entry->value);
+                if (!values[i]) {
+                    free(keys[i]);
+                    goto object_error;
+                }
+
+                total_size += strlen(keys[i]) + strlen(values[i]) + 3; // "key":value,
+            }
+
+            char* result = malloc(total_size);
+            if (!result) goto object_error;
+
+            char* out = result;
+            *out++ = '{';
+
+            for (size_t i = 0; i < obj->count; i++) {
+                if (i > 0) *out++ = ',';
+                strcpy(out, keys[i]);
+                out += strlen(keys[i]);
+                *out++ = ':';
+                strcpy(out, values[i]);
+                out += strlen(values[i]);
+                free(keys[i]);
+                free(values[i]);
+            }
+
+            *out++ = '}';
+            *out = '\0';
+
+            free(keys);
+            free(values);
+            return result;
+
+        object_error:
+            for (size_t i = 0; i < obj->count; i++) {
+                free(keys[i]);
+                free(values[i]);
+            }
+            free(keys);
+            free(values);
+            return NULL;
+        }
+
+        default:
+            return strdup("null");
+    }
 }
 
 int json_write_file(const char* filename, json_value_t* value) {
-    // Placeholder - not implemented yet
-    (void)filename;
-    (void)value;
-    return -1;
+    if (!filename || !value) return -1;
+
+    char* json_str = json_stringify(value);
+    if (!json_str) return -1;
+
+    FILE* fp = fopen(filename, "w");
+    if (!fp) {
+        free(json_str);
+        return -1;
+    }
+
+    fprintf(fp, "%s\n", json_str);
+    fclose(fp);
+    free(json_str);
+
+    return 0;
 }
 
 json_value_t* json_get_child_config(json_value_t* root, const char* child_name) {
@@ -441,4 +666,141 @@ int json_update_children(json_value_t* root, char** children, size_t count) {
     (void)children;
     (void)count;
     return -1;
+}
+
+// JSON creation functions
+json_value_t* json_create_null() {
+    json_value_t* value = calloc(1, sizeof(json_value_t));
+    if (!value) return NULL;
+    value->type = JSON_NULL;
+    return value;
+}
+
+json_value_t* json_create_bool(int bool_val) {
+    json_value_t* value = calloc(1, sizeof(json_value_t));
+    if (!value) return NULL;
+    value->type = JSON_BOOL;
+    value->value.bool_val = bool_val;
+    return value;
+}
+
+json_value_t* json_create_number(double num_val) {
+    json_value_t* value = calloc(1, sizeof(json_value_t));
+    if (!value) return NULL;
+    value->type = JSON_NUMBER;
+    value->value.num_val = num_val;
+    return value;
+}
+
+json_value_t* json_create_string(const char* str_val) {
+    json_value_t* value = calloc(1, sizeof(json_value_t));
+    if (!value) return NULL;
+    value->type = JSON_STRING;
+    value->value.str_val = str_val ? strdup(str_val) : NULL;
+    return value;
+}
+
+json_value_t* json_create_array() {
+    json_value_t* value = calloc(1, sizeof(json_value_t));
+    if (!value) return NULL;
+
+    json_array_t* arr = calloc(1, sizeof(json_array_t));
+    if (!arr) {
+        free(value);
+        return NULL;
+    }
+
+    arr->capacity = 8;
+    arr->items = calloc(arr->capacity, sizeof(json_value_t*));
+    if (!arr->items) {
+        free(arr);
+        free(value);
+        return NULL;
+    }
+
+    value->type = JSON_ARRAY;
+    value->value.arr_val = arr;
+    return value;
+}
+
+json_value_t* json_create_object() {
+    json_value_t* value = calloc(1, sizeof(json_value_t));
+    if (!value) return NULL;
+
+    json_object_t* obj = calloc(1, sizeof(json_object_t));
+    if (!obj) {
+        free(value);
+        return NULL;
+    }
+
+    obj->capacity = 8;
+    obj->entries = calloc(obj->capacity, sizeof(json_entry_t*));
+    if (!obj->entries) {
+        free(obj);
+        free(value);
+        return NULL;
+    }
+
+    value->type = JSON_OBJECT;
+    value->value.obj_val = obj;
+    return value;
+}
+
+// JSON array manipulation
+int json_array_add(json_value_t* array, json_value_t* value) {
+    if (!array || array->type != JSON_ARRAY || !value) return -1;
+
+    json_array_t* arr = array->value.arr_val;
+
+    if (arr->count >= arr->capacity) {
+        arr->capacity *= 2;
+        json_value_t** new_items = realloc(arr->items, arr->capacity * sizeof(json_value_t*));
+        if (!new_items) return -1;
+        arr->items = new_items;
+    }
+
+    arr->items[arr->count] = value;
+    arr->count++;
+
+    return 0;
+}
+
+// JSON object manipulation
+int json_object_set(json_value_t* object, const char* key, json_value_t* value) {
+    if (!object || object->type != JSON_OBJECT || !key || !value) return -1;
+
+    json_object_t* obj = object->value.obj_val;
+
+    // Check if key already exists, if so replace value
+    for (size_t i = 0; i < obj->count; i++) {
+        if (strcmp(obj->entries[i]->key, key) == 0) {
+            json_free(obj->entries[i]->value);
+            obj->entries[i]->value = value;
+            return 0;
+        }
+    }
+
+    // Add new entry
+    if (obj->count >= obj->capacity) {
+        obj->capacity *= 2;
+        json_entry_t** new_entries = realloc(obj->entries, obj->capacity * sizeof(json_entry_t*));
+        if (!new_entries) return -1;
+        obj->entries = new_entries;
+    }
+
+    json_entry_t* entry = calloc(1, sizeof(json_entry_t));
+    if (!entry) return -1;
+
+    entry->key = strdup(key);
+    entry->value = value;
+
+    if (!entry->key) {
+        free(entry);
+        return -1;
+    }
+
+    obj->entries[obj->count] = entry;
+    obj->count++;
+
+    return 0;
 }

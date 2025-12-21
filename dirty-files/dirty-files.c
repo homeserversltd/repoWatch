@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <regex.h>
 #include <time.h>
+#include "../json-utils/json-utils.h"
 
 // Structure for dirty file information
 typedef struct {
@@ -108,55 +109,62 @@ void get_dirty_files(dirty_repo_t* repo) {
 
 // Parse git-submodules report to find dirty repositories
 void parse_git_submodules_report(dirty_collection_t* collection, const char* report_path) {
-    printf("Reading git-submodules report from: %s\n", report_path);
+    printf("Reading git-submodules JSON report from: %s\n", report_path);
 
-    FILE* fp = fopen(report_path, "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open git-submodules report: %s\n", report_path);
+    // Parse JSON file
+    json_value_t* root = json_parse_file(report_path);
+    if (!root || root->type != JSON_OBJECT) {
+        fprintf(stderr, "Could not parse JSON report or invalid format\n");
+        if (root) json_free(root);
         return;
     }
 
-    char line[2048];
-    char current_repo_name[256] = {0};
-    char current_repo_path[2048] = {0};
-    int is_current_repo_dirty = 0;
-
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        // Look for "Repository:" line
-        if (strstr(line, "Repository: ")) {
-            char* name = line + strlen("Repository: ");
-            char* newline = strchr(name, '\n');
-            if (newline) *newline = '\0';
-            strcpy(current_repo_name, name);
-            is_current_repo_dirty = 0; // Reset dirty flag
-        }
-        // Look for "Path:" line
-        else if (strstr(line, "Path: ")) {
-            char* path = line + strlen("Path: ");
-            char* newline = strchr(path, '\n');
-            if (newline) *newline = '\0';
-            strcpy(current_repo_path, path);
-        }
-        // Look for "Status: DIRTY" line
-        else if (strstr(line, "Status: DIRTY")) {
-            is_current_repo_dirty = 1;
-        }
-        // Look for empty line after repository info (end of repository section)
-        else if (strlen(line) <= 1 && current_repo_name[0] != '\0' && current_repo_path[0] != '\0') {
-            // If this repository was dirty, add it to our collection
-            if (is_current_repo_dirty) {
-                printf("Found dirty repo: %s at %s\n", current_repo_name, current_repo_path);
-                add_dirty_repo(collection, current_repo_path, current_repo_name);
-            }
-
-            // Reset for next repository
-            current_repo_name[0] = '\0';
-            current_repo_path[0] = '\0';
-            is_current_repo_dirty = 0;
+    // Get repositories array
+    json_value_t* repos = NULL;
+    for (size_t i = 0; i < root->value.obj_val->count; i++) {
+        json_entry_t* entry = root->value.obj_val->entries[i];
+        if (strcmp(entry->key, "repositories") == 0 && entry->value->type == JSON_ARRAY) {
+            repos = entry->value;
+            break;
         }
     }
 
-    fclose(fp);
+    if (!repos) {
+        fprintf(stderr, "No repositories array found in JSON report\n");
+        json_free(root);
+        return;
+    }
+
+    // Parse each repository
+    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+        json_value_t* repo_obj = repos->value.arr_val->items[i];
+        if (repo_obj->type != JSON_OBJECT) continue;
+
+        char* repo_name = NULL;
+        char* repo_path = NULL;
+        int is_clean = 1;
+
+        // Extract repository data
+        for (size_t j = 0; j < repo_obj->value.obj_val->count; j++) {
+            json_entry_t* entry = repo_obj->value.obj_val->entries[j];
+
+            if (strcmp(entry->key, "name") == 0 && entry->value->type == JSON_STRING) {
+                repo_name = entry->value->value.str_val;
+            } else if (strcmp(entry->key, "path") == 0 && entry->value->type == JSON_STRING) {
+                repo_path = entry->value->value.str_val;
+            } else if (strcmp(entry->key, "is_clean") == 0 && entry->value->type == JSON_BOOL) {
+                is_clean = entry->value->value.bool_val;
+            }
+        }
+
+        // If repository is dirty, add it to our collection
+        if (!is_clean && repo_name && repo_path) {
+            printf("Found dirty repo: %s at %s\n", repo_name, repo_path);
+            add_dirty_repo(collection, repo_path, repo_name);
+        }
+    }
+
+    json_free(root);
 }
 
 // Run git-submodules and parse its output to find dirty repositories
