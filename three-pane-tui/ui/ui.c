@@ -275,7 +275,7 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     set_color(32); // Green for footer text
     const char* current_view = (orch->current_view == VIEW_FLAT) ? "FLAT" : "TREE";
     const char* other_view = (orch->current_view == VIEW_FLAT) ? "TREE" : "FLAT";
-    printf("Q: exit | SPACE: toggle %s/%s view", other_view, current_view);
+    printf("Q: exit | [%s] click to toggle to %s view", current_view, other_view);
     reset_colors();
 
     fflush(stdout);

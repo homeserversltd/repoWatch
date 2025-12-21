@@ -205,35 +205,73 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             draw_tui_overlay(orch);
         }
 
-        // Try to read mouse events first
+        // Try to read mouse events first (they start with \033)
         int button, x, y, scroll_delta;
         int mouse_result = read_mouse_event(&button, &x, &y, &scroll_delta);
 
         if (mouse_result == 0) {
-            // Handle mouse event
-            // Convert to 1-based coordinates
-            int pane_index = get_pane_at_position(x - 1, y - 1, pane_width, width, pane_height);
-            if (pane_index > 0 && pane_index <= 3) {
-                pane_scroll_state_t* scroll_state = NULL;
-                switch (pane_index) {
-                    case 1: scroll_state = &orch->data.pane1_scroll; break;
-                    case 2: scroll_state = &orch->data.pane2_scroll; break;
-                    case 3: scroll_state = &orch->data.pane3_scroll; break;
-                }
-                if (scroll_state) {
-                    update_pane_scroll(scroll_state, scroll_delta);
+            // Only handle button presses, not releases (button == -1 indicates release)
+            if (button == -1) {
+                // Button release - ignore to prevent double-clicking
+                // Do nothing
+            } else {
+                // Button press - handle it
+                // Convert to 1-based coordinates
+                int click_x = x - 1;
+                int click_y = y - 1;
 
-                    // Throttle redraws to prevent crashes from rapid mouse events
-                    struct timespec now;
-                    clock_gettime(CLOCK_MONOTONIC, &now);
-                    long elapsed_ms = (now.tv_sec - last_redraw.tv_sec) * 1000 +
-                                    (now.tv_nsec - last_redraw.tv_nsec) / 1000000;
+                // Check if click is in footer (last row)
+                if (click_y == height - 1) {
+                    // Check if click is on the toggle button (around columns 10-20)
+                    if (click_x >= 10 && click_x <= 20) {
+                        // Toggle view mode
+                        fprintf(stderr, "DEBUG: Footer button clicked, toggling view mode\n");
+                        view_mode_t old_view = orch->current_view;
+                        orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
+                        fprintf(stderr, "DEBUG: View mode changed from %s to %s\n",
+                               old_view == VIEW_FLAT ? "FLAT" : "TREE",
+                               orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
 
-                    if (elapsed_ms >= 50) { // Minimum 50ms between redraws
-                        draw_tui_overlay(orch);
-                        last_redraw = now;
+                        // Reload data with new view mode
+                        fprintf(stderr, "DEBUG: Calling load_committed_not_pushed_data with view_mode=%s\n",
+                               orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
+                        int load_result = load_committed_not_pushed_data(orch, orch->current_view);
+                        fprintf(stderr, "DEBUG: load_committed_not_pushed_data returned %d\n", load_result);
+
+                        if (load_result == 0) {
+                            fprintf(stderr, "DEBUG: Calling draw_tui_overlay\n");
+                            draw_tui_overlay(orch);
+                            fprintf(stderr, "DEBUG: draw_tui_overlay completed successfully\n");
+                        } else {
+                            fprintf(stderr, "DEBUG: load_committed_not_pushed_data failed, not redrawing\n");
+                        }
+                    }
+                } else {
+                // Handle pane scrolling (not in footer)
+                int pane_index = get_pane_at_position(click_x, click_y, pane_width, width, pane_height);
+                if (pane_index > 0 && pane_index <= 3) {
+                    pane_scroll_state_t* scroll_state = NULL;
+                    switch (pane_index) {
+                        case 1: scroll_state = &orch->data.pane1_scroll; break;
+                        case 2: scroll_state = &orch->data.pane2_scroll; break;
+                        case 3: scroll_state = &orch->data.pane3_scroll; break;
+                    }
+                    if (scroll_state) {
+                        update_pane_scroll(scroll_state, scroll_delta);
+
+                        // Throttle redraws to prevent crashes from rapid mouse events
+                        struct timespec now;
+                        clock_gettime(CLOCK_MONOTONIC, &now);
+                        long elapsed_ms = (now.tv_sec - last_redraw.tv_sec) * 1000 +
+                                        (now.tv_nsec - last_redraw.tv_nsec) / 1000000;
+
+                        if (elapsed_ms >= 50) { // Minimum 50ms between redraws
+                            draw_tui_overlay(orch);
+                            last_redraw = now;
+                        }
                     }
                 }
+            }
             }
         } else if (mouse_result == -3) {
             // Incomplete mouse event, ignore and continue

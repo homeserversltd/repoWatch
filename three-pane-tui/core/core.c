@@ -117,12 +117,28 @@ void disable_mouse_reporting() {
 // Returns: 0 on success, -1 on no data, -2 on invalid data, -3 on incomplete data
 int read_mouse_event(int* button, int* x, int* y, int* scroll_delta) {
     unsigned char buf[16]; // Smaller buffer, mouse events are typically 6-8 bytes
-    int n = read(STDIN_FILENO, buf, sizeof(buf));
 
+    // First, peek at 1 byte to see if this could be a mouse event
+    int n = read(STDIN_FILENO, buf, 1);
     if (n <= 0) return -1; // No data
 
-    // Check for SGR mouse mode: \e[<button;x;yM or \e[<button;x;ym
-    if (n >= 6 && buf[0] == '\033' && buf[1] == '[' && buf[2] == '<') {
+    // Mouse events always start with \033 (escape)
+    if (buf[0] != '\033') {
+        return -2; // Not a mouse event, don't consume more
+    }
+
+    // Read 2 more bytes to check for [< pattern
+    n = read(STDIN_FILENO, buf + 1, 2);
+    if (n < 2) return -3; // Incomplete
+
+    // Check if this looks like a mouse event start: \e[<
+    if (buf[1] == '[' && buf[2] == '<') {
+        // This looks like a mouse event, read the rest
+        int remaining = read(STDIN_FILENO, buf + 3, sizeof(buf) - 3);
+        if (remaining < 0) return -3; // Error reading rest
+        n = 3 + remaining;
+
+        // Now we have the complete mouse event
         // Find the end of the mouse event (M or m)
         int event_end = -1;
         for (int i = 3; i < n; i++) {

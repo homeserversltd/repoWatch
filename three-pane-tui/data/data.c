@@ -447,9 +447,8 @@ int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mod
                     for (size_t k = 0; k < files_changed->value.arr_val->count; k++) {
                         json_value_t* file = files_changed->value.arr_val->items[k];
                         if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
-                            char file_buffer[1024];
-                            snprintf(file_buffer, sizeof(file_buffer), "    ├── %s", file->value.str_val);
-                            orch->data.pane2_items[item_index++] = strdup(file_buffer);
+                        // For FLAT view, just show the filename without tree prefixes
+                        orch->data.pane2_items[item_index++] = strdup(file->value.str_val);
                         }
                     }
                 }
