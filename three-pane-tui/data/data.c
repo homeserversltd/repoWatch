@@ -478,6 +478,38 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
     orch->data.pane1_items = NULL;
     orch->data.pane1_count = 0;
 
+    // First, read git-submodules.report to get list of known submodules to filter out
+    char** submodules = NULL;
+    size_t submodule_count = 0;
+
+    json_value_t* submodules_report = json_parse_file("git-submodules.report");
+    if (submodules_report && submodules_report->type == JSON_OBJECT) {
+        json_value_t* repos = get_nested_value(submodules_report, "repositories");
+        if (repos && repos->type == JSON_ARRAY) {
+            // Count non-root repositories (submodules)
+            for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+                json_value_t* repo = repos->value.arr_val->items[i];
+                if (repo->type != JSON_OBJECT) continue;
+                json_value_t* name = get_nested_value(repo, "name");
+                if (name && name->type == JSON_STRING && strcmp(name->value.str_val, "root") != 0) {
+                    submodule_count++;
+                }
+            }
+
+            // Allocate and populate submodules array
+            submodules = calloc(submodule_count, sizeof(char*));
+            size_t sub_idx = 0;
+            for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+                json_value_t* repo = repos->value.arr_val->items[i];
+                if (repo->type != JSON_OBJECT) continue;
+                json_value_t* name = get_nested_value(repo, "name");
+                if (name && name->type == JSON_STRING && strcmp(name->value.str_val, "root") != 0) {
+                    submodules[sub_idx++] = strdup(name->value.str_val);
+                }
+            }
+        }
+    }
+
     json_value_t* report = json_parse_file("dirty-files-report.json");
     if (!report || report->type != JSON_OBJECT) {
         fprintf(stderr, "Failed to load dirty-files-report.json\n");
@@ -532,7 +564,7 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
 
             for (size_t j = 0; j < files->value.arr_val->count; j++) {
                 json_value_t* file = files->value.arr_val->items[j];
-                if (file->type == JSON_STRING) {
+                if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
                     repo_files = realloc(repo_files, (repo_file_count + 1) * sizeof(char*));
                     repo_files[repo_file_count] = strdup(file->value.str_val);
                     repo_file_count++;
@@ -606,10 +638,10 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
             snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", display_name);
             orch->data.pane1_items[item_index++] = strdup(header_buffer);
 
-            // Add each dirty file (plain filename, no repo prefix)
+            // Add each dirty file (plain filename, no repo prefix) - skip submodules
             for (size_t j = 0; j < files->value.arr_val->count; j++) {
                 json_value_t* file = files->value.arr_val->items[j];
-                if (file->type == JSON_STRING && item_index < total_items) {
+                if (file->type == JSON_STRING && item_index < total_items && !is_submodule(file->value.str_val, submodules, submodule_count)) {
                     // Store just the filename without repository prefix
                     orch->data.pane1_items[item_index++] = strdup(file->value.str_val);
                 }
@@ -618,6 +650,16 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
     }
 
     json_free(report);
+
+    // Cleanup submodules array
+    if (submodules_report) json_free(submodules_report);
+    if (submodules) {
+        for (size_t i = 0; i < submodule_count; i++) {
+            free(submodules[i]);
+        }
+        free(submodules);
+    }
+
     return 0;
 }
 

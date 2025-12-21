@@ -171,37 +171,26 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
         end_item = item_count;
     }
 
-    // Phase 1: Collect all color indices for visible items
+    // Phase 1: Assign alternating colors to consecutive repositories
     int* item_colors = calloc(end_item - start_item, sizeof(int));
     size_t color_idx = 0;
+    int current_repo_color = 0; // Will be assigned alternating colors 1, 2, 3, 4, etc.
 
     for (size_t i = start_item; i < end_item; i++) {
         char* repo_name = extract_repo_name_from_header(items[i]);
         if (repo_name) {
-            // Repository header - get color index directly
-            item_colors[color_idx] = get_repo_color_index(repo_name);
+            // Repository header - assign next alternating color
+            current_repo_color++;
+            // Wrap around to rainbow table (1-8)
+            if (current_repo_color > 8) current_repo_color = 1;
+            item_colors[color_idx] = current_repo_color;
             free(repo_name);
         } else {
-            // Content item - determine color based on current repository context
-            int repo_color = 0;
-            // Scan backwards from this item to find the repository header
-            for (size_t scan_idx = i; ; scan_idx--) {
-                if (scan_idx >= item_count) break; // Safety check
-                char* scan_repo_name = extract_repo_name_from_header(items[scan_idx]);
-                if (scan_repo_name) {
-                    repo_color = get_repo_color_index(scan_repo_name);
-                    free(scan_repo_name);
-                    break; // Found the repository header
-                }
-                if (scan_idx == 0) break; // Reached the beginning
-            }
-            item_colors[color_idx] = repo_color;
+            // Content item - use the current repository's color
+            item_colors[color_idx] = current_repo_color;
         }
         color_idx++;
     }
-
-    // Phase 2: Apply non-touching adjustment to color indices
-    adjust_colors_no_touching(item_colors, color_idx);
 
     // Draw visible items only
     size_t display_idx = 0;
@@ -235,11 +224,6 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
             // Smart truncation prioritizing filename over directory path
             const char* text = items[i];
             int max_text_width = width; // Fill the pane completely
-
-            // For pane 1 (tree view), allow much longer names before truncating
-            if (pane_index == 1) {
-                max_text_width = 256; // Allow full file names in tree view
-            }
 
             // Use glyph-aware right-priority truncation for all content
             char* display_text = truncate_string_right_priority(text, max_text_width);
