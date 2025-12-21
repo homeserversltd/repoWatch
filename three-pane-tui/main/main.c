@@ -233,9 +233,17 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             int dirty_files_result = system("./dirty-files/dirty-files > /dev/null 2>&1");
             int committed_not_pushed_result = system("./committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
 
-            // Then reload the data if scans succeeded
-            if ((dirty_files_result == 0 && load_dirty_files_data(orch, orch->current_view) == 0) ||
-                (committed_not_pushed_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0)) {
+            // Reload data for each pane that succeeded (always attempt both)
+            int data_changed = 0;
+            if (dirty_files_result == 0 && load_dirty_files_data(orch, orch->current_view) == 0) {
+                data_changed = 1;
+            }
+            if (committed_not_pushed_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                data_changed = 1;
+            }
+
+            // Update UI if any data changed
+            if (data_changed) {
                 // Update scroll states after data refresh
                 get_terminal_size(&width, &height);
                 pane_width = width / 3;
