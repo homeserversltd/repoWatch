@@ -229,11 +229,12 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                          (now.tv_nsec - last_git_check.tv_nsec) / 1000000;
 
         if (elapsed_ms >= 200) {  // 200ms refresh interval
-            // Refresh git data by re-running both components
+            // Refresh git data by re-running all components
             int dirty_files_result = system("./dirty-files/dirty-files > /dev/null 2>&1");
             int committed_not_pushed_result = system("./committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
+            system("./file-changes-watcher/file-changes-watcher > /dev/null 2>&1"); // Always run, no result check needed
 
-            // Reload data for each pane that succeeded (always attempt both)
+            // Reload data for each pane that succeeded (always attempt all)
             int data_changed = 0;
             if (dirty_files_result == 0 && load_dirty_files_data(orch, orch->current_view) == 0) {
                 data_changed = 1;
@@ -241,6 +242,7 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             if (committed_not_pushed_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0) {
                 data_changed = 1;
             }
+            // Note: file-changes-watcher data is loaded below in animation management, no separate load function needed
 
             // Update UI if any data changed
             if (data_changed) {
