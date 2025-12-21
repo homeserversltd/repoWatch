@@ -38,8 +38,6 @@ committed_not_pushed_config_t* load_config(const char* module_path) {
     // When run as child process, module_path is repoWatch root, so look for committed-not-pushed/index.json
     char index_path[1024];
     snprintf(index_path, sizeof(index_path), "%s/committed-not-pushed/index.json", module_path);
-
-    printf("DEBUG: Looking for config at: %s\n", index_path);
     json_value_t* config_json = json_parse_file(index_path);
     if (!config_json) {
         fprintf(stderr, "Failed to load configuration from %s\n", index_path);
@@ -59,7 +57,6 @@ committed_not_pushed_config_t* load_config(const char* module_path) {
     config->include_branch_info = get_nested_int(config_json, "config.include_branch_info", 1);
 
     char* raw_display_mode = get_nested_string(config_json, "config.display_mode", "flat");
-    printf("DEBUG: Raw display_mode from JSON: '%s'\n", raw_display_mode ? raw_display_mode : "NULL");
     config->display_mode = expandvars(raw_display_mode);
     config->tree_prefix = expandvars(get_nested_string(config_json, "config.tree_prefix", "├── "));
     config->tree_last_prefix = expandvars(get_nested_string(config_json, "config.tree_last_prefix", "└── "));
@@ -79,11 +76,6 @@ committed_not_pushed_config_t* load_config(const char* module_path) {
     } else {
         config->current_view = VIEW_FLAT;
     }
-
-    // Debug output
-    printf("DEBUG: Loaded display_mode: '%s', current_view: %s\n",
-           config->display_mode,
-           config->current_view == VIEW_TREE ? "TREE" : "FLAT");
 
     json_free(config_json);
     return config;

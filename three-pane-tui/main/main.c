@@ -219,8 +219,7 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
         if (elapsed_ms >= 200) {  // 200ms refresh interval
             // Refresh git data by re-running committed-not-pushed component
-            // First trigger git scan by executing committed-not-pushed component
-            int git_scan_result = system("../committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
+            int git_scan_result = system("./committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
 
             // Then reload the data if git scan succeeded
             if (git_scan_result == 0 && load_committed_not_pushed_data(orch, orch->current_view) == 0) {
