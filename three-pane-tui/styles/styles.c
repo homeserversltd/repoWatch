@@ -34,24 +34,11 @@ int get_file_color(const char* filepath, const style_config_t* styles) {
 
 // Load style configuration from index.json
 int load_styles(style_config_t* styles, const char* module_path) {
-    fprintf(stderr, "DEBUG: About to parse index.json from module_path: %s\n", module_path);
-
-    // Construct full path to index.json
+    // Construct full path to three-pane-tui/styles/index.json
     char index_path[2048];
-    snprintf(index_path, sizeof(index_path), "%s/index.json", module_path);
+    snprintf(index_path, sizeof(index_path), "%s/three-pane-tui/styles/index.json", module_path);
 
     json_value_t* root = json_parse_file(index_path);
-    fprintf(stderr, "DEBUG: Finished parsing %s\n", index_path);
-    fprintf(stderr, "DEBUG: root = %p\n", root);
-    if (root) {
-        fprintf(stderr, "DEBUG: root type = %d (should be %d for JSON_OBJECT)\n", root->type, JSON_OBJECT);
-        if (root->type == JSON_OBJECT) {
-            fprintf(stderr, "DEBUG: root has %zu entries\n", root->value.obj_val->count);
-            for (size_t i = 0; i < root->value.obj_val->count; i++) {
-                fprintf(stderr, "DEBUG: key[%zu] = '%s'\n", i, root->value.obj_val->entries[i]->key);
-            }
-        }
-    }
     if (!root || root->type != JSON_OBJECT) {
         fprintf(stderr, "Failed to load index.json\n");
         return -1;
@@ -59,16 +46,6 @@ int load_styles(style_config_t* styles, const char* module_path) {
 
     // Get current scheme name
     json_value_t* current_scheme_val = get_nested_value(root, "styles.current_scheme");
-    fprintf(stderr, "DEBUG: Looking for 'styles.current_scheme'\n");
-    fprintf(stderr, "DEBUG: current_scheme_val = %p\n", current_scheme_val);
-    if (current_scheme_val) {
-        fprintf(stderr, "DEBUG: current_scheme_val type = %d (should be %d for JSON_STRING)\n", current_scheme_val->type, JSON_STRING);
-        if (current_scheme_val->type == JSON_STRING) {
-            fprintf(stderr, "DEBUG: current_scheme = '%s'\n", current_scheme_val->value.str_val);
-        }
-    } else {
-        fprintf(stderr, "DEBUG: get_nested_value returned NULL\n");
-    }
     if (!current_scheme_val || current_scheme_val->type != JSON_STRING) {
         fprintf(stderr, "No current_scheme found in styles\n");
         json_free(root);

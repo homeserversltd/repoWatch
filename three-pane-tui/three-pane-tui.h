@@ -120,6 +120,8 @@ int enable_mouse_reporting();
 void disable_mouse_reporting();
 int read_mouse_event(int* button, int* x, int* y, int* scroll_delta);
 int read_char_timeout();
+int get_string_display_width(const char* str);
+char* truncate_string_right_priority(const char* str, int max_width);
 
 // Styles module functions
 int get_file_color(const char* filepath, const style_config_t* styles);

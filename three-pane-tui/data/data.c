@@ -105,9 +105,7 @@ static tree_node_t* build_file_tree(char** files, size_t file_count) {
 
 // Print tree node with proper indentation
 static void print_tree_node(tree_node_t* node, int depth, int is_last, const char* prefix, const char* last_prefix, const char* indent, int max_width, int current_row, int max_row, char*** items, size_t* item_count) {
-    fprintf(stderr, "DEBUG: print_tree_node called with node='%s', depth=%d\n", node ? node->name : "NULL", depth);
     if (current_row >= max_row || !items || !item_count || !node || !node->name) {
-        fprintf(stderr, "DEBUG: print_tree_node early return - invalid params or node\n");
         return;
     }
 
@@ -128,20 +126,20 @@ static void print_tree_node(tree_node_t* node, int depth, int is_last, const cha
         }
     }
 
-    // Print node name (truncated if necessary)
-    char truncated_name[256];
-    size_t len = strlen(node->name);
-    if (len <= max_width) {
-        strcpy(truncated_name, node->name);
-    } else {
-        int copy_len = max_width - 3;
-        if (copy_len < 1) copy_len = 1;
-        strncpy(truncated_name, node->name, copy_len);
-        truncated_name[copy_len] = '\0';
-        strcat(truncated_name, "...");
-    }
+    // Calculate available width for filename (accounting for indentation and tree prefix)
+    int indent_width = depth * strlen(indent); // Rough estimate for indentation
+    int prefix_width = (depth > 0) ? strlen(is_last ? last_prefix : prefix) : 0;
+    int used_width = indent_width + prefix_width;
+    int available_width = max_width - used_width;
 
-    buffer_pos += snprintf(buffer + buffer_pos, sizeof(buffer) - buffer_pos, "%s", truncated_name);
+    if (available_width <= 0) available_width = 10; // Minimum fallback
+
+    // Get truncated name using glyph-aware right-priority truncation
+    char* display_name = truncate_string_right_priority(node->name, available_width);
+
+    buffer_pos += snprintf(buffer + buffer_pos, sizeof(buffer) - buffer_pos, "%s", display_name);
+
+    free(display_name);
 
     // Add to items array
     *items = realloc(*items, (*item_count + 1) * sizeof(char*));
@@ -346,7 +344,7 @@ int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mod
                     for (size_t j = 0; j < file_tree->child_count; j++) {
                         int is_last = (j == file_tree->child_count - 1);
                         print_tree_node(file_tree->children[j], 0, is_last,
-                                      "├── ", "└── ", "│   ", 60, 0, 1000,
+                                      "├── ", "└── ", "│   ", 256, 0, 1000,
                                       &orch->data.pane2_items, &orch->data.pane2_count);
                     }
                 }
@@ -432,13 +430,11 @@ int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch, view_mod
                 // Add commit info
                 if (commit_info && commit_info->type == JSON_STRING) {
                     char commit_buffer[1024];
-                    // Truncate commit info if too long
+                    // Truncate commit info using glyph-aware approach
                     const char* info = commit_info->value.str_val;
-                    if (strlen(info) > 60) {
-                        snprintf(commit_buffer, sizeof(commit_buffer), "└── %.60s...", info);
-                    } else {
-                        snprintf(commit_buffer, sizeof(commit_buffer), "└── %s", info);
-                    }
+                    char* truncated_commit = truncate_string_right_priority(info, 60 - 4); // 4 for "└── "
+                    snprintf(commit_buffer, sizeof(commit_buffer), "└── %s", truncated_commit);
+                    free(truncated_commit);
                     orch->data.pane2_items[item_index++] = strdup(commit_buffer);
                 }
 

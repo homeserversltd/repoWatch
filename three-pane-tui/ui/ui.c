@@ -108,74 +108,17 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
 
         // Smart truncation prioritizing filename over directory path
         const char* text = items[i];
-        int max_text_width = width - 2; // Leave some margin
+        int max_text_width = width; // Fill the pane completely
 
-        if (strlen(text) > max_text_width) {
-            char truncated[2048];
-
-            // Find tree drawing characters (Unicode box drawing)
-            const char* tree_chars[] = {"├── ", "└── ", "│   ", NULL};
-            const char* filename_start = NULL;
-            int prefix_len = 0;
-
-            // Check for any tree drawing character
-            for (int t = 0; tree_chars[t] != NULL; t++) {
-                const char* found = strstr(text, tree_chars[t]);
-                if (found) {
-                    filename_start = found + strlen(tree_chars[t]);
-                    prefix_len = filename_start - text;
-                    break;
-                }
-            }
-
-            if (filename_start && prefix_len > 0) {
-                // Preserve the exact tree prefix (handle UTF-8 properly)
-                char preserved_prefix[32];
-                // Use memcpy to preserve UTF-8 bytes exactly
-                if (prefix_len < sizeof(preserved_prefix)) {
-                    memcpy(preserved_prefix, text, prefix_len);
-                    preserved_prefix[prefix_len] = '\0';
-                } else {
-                    // Fallback if prefix is too long
-                    snprintf(preserved_prefix, sizeof(preserved_prefix), "%.*s", prefix_len, text);
-                }
-
-                int available_for_filename = max_text_width - prefix_len - 3; // 3 for "..."
-
-                if (available_for_filename > 0) {
-                    int filename_len = strlen(filename_start);
-                    if (filename_len <= available_for_filename) {
-                        // Can show full filename
-                        snprintf(truncated, sizeof(truncated), "%s%s", preserved_prefix, filename_start);
-                    } else {
-                        // Show ellipsis + end of filename
-                        int show_from = filename_len - available_for_filename;
-                        if (show_from > 0) {
-                            snprintf(truncated, sizeof(truncated), "%s...%s", preserved_prefix, filename_start + show_from);
-                        } else {
-                            // Fallback: just truncate normally
-                            snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
-                        }
-                    }
-                } else {
-                    // Not enough space, truncate normally
-                    snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
-                }
-            } else {
-                // For non-tree entries (like repository names), truncate from end
-                int text_len = strlen(text);
-                int start_pos = text_len - (max_text_width - 3); // Leave room for "..."
-                if (start_pos > 0) {
-                    snprintf(truncated, sizeof(truncated), "...%s", text + start_pos);
-                } else {
-                    // Fallback: just truncate normally
-                    snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
-                }
-            }
-            printf("%s", truncated);
-        } else {
-            printf("%s", text);
+        // For pane 1 (tree view), allow much longer names before truncating
+        if (pane_index == 1) {
+            max_text_width = 256; // Allow full file names in tree view
         }
+
+        // Use glyph-aware right-priority truncation for all content
+        char* display_text = truncate_string_right_priority(text, max_text_width);
+        printf("%s", display_text);
+        free(display_text);
         reset_colors();
         current_row++;
     }
@@ -274,8 +217,7 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     move_cursor(height, 1);
     set_color(32); // Green for footer text
     const char* current_view = (orch->current_view == VIEW_FLAT) ? "FLAT" : "TREE";
-    const char* other_view = (orch->current_view == VIEW_FLAT) ? "TREE" : "FLAT";
-    printf("Q: exit | [%s] click to toggle to %s view", current_view, other_view);
+    printf("Q: exit | [%s] click to toggle view", current_view);
     reset_colors();
 
     fflush(stdout);

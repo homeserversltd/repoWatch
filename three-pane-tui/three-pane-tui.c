@@ -13,9 +13,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // The three-pane-tui executable is run from repoWatch root, but config files are in three-pane-tui/
+    // The three-pane-tui executable is run from the three-pane-tui directory, so module path is current directory
     char full_module_path[2048];
-    snprintf(full_module_path, sizeof(full_module_path), "%s/three-pane-tui", module_path);
+    snprintf(full_module_path, sizeof(full_module_path), "%s", module_path);
 
     // Initialize three-pane-tui orchestrator
     three_pane_tui_orchestrator_t* orch = three_pane_tui_init(full_module_path);

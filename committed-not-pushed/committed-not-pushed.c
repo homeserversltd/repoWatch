@@ -115,42 +115,6 @@ char* expandvars(const char* input) {
     return strdup(input);
 }
 
-// Simple implementation of get_nested_value with dot notation support
-json_value_t* get_nested_value(json_value_t* root, const char* key_path) {
-    if (!root || !key_path) {
-        return NULL;
-    }
-
-    json_value_t* current = root;
-    char* path_copy = strdup(key_path);
-    char* token = strtok(path_copy, ".");
-
-    while (token && current) {
-        if (current->type != JSON_OBJECT) {
-            break;
-        }
-
-        json_object_t* obj = current->value.obj_val;
-        int found = 0;
-        for (size_t i = 0; i < obj->count; i++) {
-            if (strcmp(obj->entries[i]->key, token) == 0) {
-                current = obj->entries[i]->value;
-                found = 1;
-                break;
-            }
-        }
-
-        if (!found) {
-            current = NULL;
-            break;
-        }
-
-        token = strtok(NULL, ".");
-    }
-
-    free(path_copy);
-    return current;
-}
 
 // Helper function to get display repo name (similar to interactive-dirty-files-tui)
 const char* get_display_repo_name(const char* repo_name, const char* repo_path) {
@@ -407,49 +371,10 @@ void add_unpushed_commit(unpushed_repo_t* repo, const char* commit_info) {
     repo->commit_count++;
 }
 
-// Truncate filename only if longer than 32 characters, showing first 24 + ellipsis + extension
+// Don't truncate filenames - let the UI layer handle truncation
 char* truncate_filename(const char* filename, int is_file) {
-    size_t len = strlen(filename);
-
-    // If it's a directory or filename is 32 chars or less, return as-is
-    if (!is_file || len <= 32) {
-        return strdup(filename);
-    }
-
-    // Find the last dot for file extension
-    const char* ext_start = strrchr(filename, '.');
-    char* result;
-
-    if (ext_start && ext_start != filename) {
-        // Has extension - calculate how much of the filename we can keep
-        size_t ext_len = strlen(ext_start); // includes the dot
-        size_t available_for_name = 24 - 3 - ext_len; // 24 total - 3 for "..." - ext length
-
-        if (available_for_name < 1) {
-            // Not enough space, take first char + ... + extension
-            available_for_name = 1;
-        }
-
-        result = malloc(available_for_name + 3 + ext_len + 1); // name + "..." + ext + null
-        if (result) {
-            size_t name_len = len - ext_len; // length of name without extension
-            size_t copy_len = available_for_name < name_len ? available_for_name : name_len;
-            strncpy(result, filename, copy_len);
-            result[copy_len] = '\0';
-            strcat(result, "...");
-            strcat(result, ext_start);
-        }
-    } else {
-        // No extension - just take first 24 chars + "..."
-        result = malloc(25); // 24 + "..." + null
-        if (result) {
-            strncpy(result, filename, 24);
-            result[24] = '\0';
-            strcat(result, "...");
-        }
-    }
-
-    return result ? result : strdup(filename);
+    // Return filename as-is - UI will handle truncation with glyph-aware logic
+    return strdup(filename);
 }
 
 // Get files changed in a specific commit

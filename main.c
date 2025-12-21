@@ -518,8 +518,8 @@ int main(int argc, char* argv[]) {
 
     log_state(orch, "Child execution phase completed with result: %d", result);
 
-    // Display child reports before main loop
-    display_child_reports(orch);
+    // Display child reports before main loop - DISABLED by user request
+    // display_child_reports(orch);
 
     log_state(orch, "Starting main application loop");
 

@@ -23,51 +23,5 @@
     "pane1_title": "Git Submodules",
     "pane2_title": "Committed Not Pushed",
     "pane3_title": "Live Feed of Changes"
-  },
-  "styles": {
-    "color_schemes": {
-      "cyberpunk_green": {
-        "directory": 32,
-        "file_default": 37,
-        "extensions": {
-          ".c": 36,
-          ".h": 36,
-          ".py": 33,
-          ".js": 33,
-          ".json": 35,
-          ".md": 32,
-          ".txt": 37,
-          ".sh": 31,
-          ".yml": 35,
-          ".yaml": 35,
-          ".git": 31
-        },
-        "special_files": {
-          "Makefile": 31,
-          "README": 32,
-          "LICENSE": 32,
-          "Dockerfile": 36,
-          ".gitignore": 30
-        }
-      }
-    },
-    "current_scheme": "cyberpunk_green",
-    "ui_colors": {
-      "title": 32,
-      "header_separator": 32,
-      "pane_titles": {
-        "left": 32,
-        "center": 33,
-        "right": 31
-      },
-      "borders": {
-        "vertical": 32,
-        "horizontal": 32
-      },
-      "footer": {
-        "separator": 32,
-        "text": 32
-      }
-    }
   }
 }

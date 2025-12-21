@@ -1,4 +1,8 @@
 #include "../three-pane-tui.h"
+#include <wchar.h>
+#include <wctype.h>
+#include <locale.h>
+#include <curses.h>
 
 // Global flag for redraw requests (defined in main module)
 extern volatile sig_atomic_t redraw_needed;
@@ -185,6 +189,205 @@ int read_mouse_event(int* button, int* x, int* y, int* scroll_delta) {
     }
 
     return -2; // Invalid format
+}
+
+// Measure the display width of a UTF-8 string (simplified UTF-8 aware approach)
+int get_string_display_width(const char* str) {
+    if (!str || !*str) return 0;
+
+    // For now, use a simplified approach: count bytes but account for basic UTF-8
+    // This is not perfect for wide characters like emojis, but better than character counting
+    int width = 0;
+    const char* p = str;
+
+    while (*p) {
+        unsigned char c = *p;
+        if (c < 128) {
+            // ASCII character - 1 width
+            width += 1;
+            p += 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            // 2-byte UTF-8 sequence - assume 1 width (most common case)
+            width += 1;
+            p += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            // 3-byte UTF-8 sequence - assume 1 width (most common case)
+            width += 1;
+            p += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            // 4-byte UTF-8 sequence - could be 2 width (emojis), assume 1 for now
+            width += 1;
+            p += 4;
+        } else {
+            // Invalid UTF-8, count as 1
+            width += 1;
+            p += 1;
+        }
+    }
+
+    return width;
+}
+
+// Smart truncation: for paths, show first folder + ... + filename, for others use right-priority
+char* truncate_string_right_priority(const char* str, int max_width) {
+    if (!str) return NULL;
+
+    int ellipses_width = 3; // Width of "..."
+    int total_width = get_string_display_width(str);
+
+    // If it fits, return copy as-is
+    if (total_width <= max_width) {
+        return strdup(str);
+    }
+
+    // Check if this looks like a path (contains slashes)
+    const char* first_slash = strchr(str, '/');
+    if (first_slash) {
+        // Smart path truncation: expand from root as far right as possible, then .../filename
+        const char* last_slash = strrchr(str, '/');
+        if (last_slash && last_slash > first_slash) {
+            // Extract filename (from last slash to end)
+            const char* filename = last_slash + 1;
+
+            // Build path components array
+            char* path_copy = strdup(str);
+            char* components[100]; // Max 100 components should be plenty
+            int component_count = 0;
+
+            char* token = strtok(path_copy, "/");
+            while (token && component_count < 99) {
+                components[component_count++] = token;
+                token = strtok(NULL, "/");
+            }
+
+            if (component_count >= 2) { // Need at least root folder + filename
+                // Build path from left to right, checking width
+                char* current_path = calloc(strlen(str) + ellipses_width + 2, sizeof(char)); // +2 for slashes
+                int current_pos = 0;
+
+                // Always include root folder
+                strcpy(current_path, components[0]);
+                current_pos = 1;
+
+                // Add as many middle components as possible
+                for (int i = 1; i < component_count - 1; i++) { // Skip root (0) and filename (last)
+                    // Try adding this component
+                    char* test_path = calloc(strlen(current_path) + strlen(components[i]) + 2, sizeof(char));
+                    sprintf(test_path, "%s/%s", current_path, components[i]);
+
+                    // Add .../filename to test full width
+                    char* full_test = calloc(strlen(test_path) + ellipses_width + strlen(filename) + 3, sizeof(char));
+                    sprintf(full_test, "%s/.../%s", test_path, filename);
+
+                    int test_width = get_string_display_width(full_test);
+                    if (test_width <= max_width) {
+                        // It fits, keep this component
+                        strcpy(current_path, test_path);
+                        current_pos = i + 1;
+                        free(test_path);
+                        free(full_test);
+                    } else {
+                        // Doesn't fit, stop here
+                        free(test_path);
+                        free(full_test);
+                        break;
+                    }
+                }
+
+                // Construct final result: path_so_far/.../filename
+                char* smart_result = calloc(strlen(current_path) + ellipses_width + strlen(filename) + 3, sizeof(char));
+                sprintf(smart_result, "%s/.../%s", current_path, filename);
+
+                free(current_path);
+                free(path_copy);
+
+                // Final width check
+                int smart_width = get_string_display_width(smart_result);
+                if (smart_width <= max_width) {
+                    return smart_result;
+                }
+
+                free(smart_result);
+            } else {
+                free(path_copy);
+            }
+        }
+    }
+
+    // Fall back to right-priority truncation
+    // Available width for actual content (after ellipses)
+    int available_width = max_width - ellipses_width;
+    if (available_width <= 0) {
+        // Not even room for ellipses, return minimal version
+        return strdup("...");
+    }
+
+    // Find the rightmost characters that fit within available_width
+    // Use UTF-8 aware approach: work backwards through the string
+    int current_width = 0;
+    size_t bytes_to_keep = 0;
+    const char* ptr = str + strlen(str); // Start at end
+
+    while (ptr > str && bytes_to_keep < strlen(str)) {
+        // Move back one UTF-8 character
+        ptr--;
+        while (ptr > str && ((*ptr & 0xC0) == 0x80)) {
+            // Continue back through continuation bytes
+            ptr--;
+        }
+
+        // Calculate width of this character (simplified UTF-8 approach)
+        const char* char_start = ptr;
+        int char_width = 1; // Default width
+
+        unsigned char first_byte = *char_start;
+        if (first_byte < 128) {
+            // ASCII - 1 width
+            char_width = 1;
+        } else if ((first_byte & 0xE0) == 0xC0) {
+            // 2-byte sequence - typically 1 width
+            char_width = 1;
+        } else if ((first_byte & 0xF0) == 0xE0) {
+            // 3-byte sequence - typically 1 width
+            char_width = 1;
+        } else if ((first_byte & 0xF8) == 0xF0) {
+            // 4-byte sequence - could be 2 width (emojis), but assume 1
+            char_width = 1;
+        }
+
+        int char_bytes = 0;
+        const char* temp = char_start;
+        while (*temp && char_bytes < 4) {
+            if ((*temp & 0xC0) != 0x80 || char_bytes == 0) {
+                char_bytes++;
+            } else {
+                break;
+            }
+            temp++;
+            if (char_bytes >= 4) break; // Safety limit
+        }
+
+        if (current_width + char_width <= available_width) {
+            current_width += char_width;
+            bytes_to_keep = strlen(str) - (char_start - str);
+        } else {
+            break;
+        }
+    }
+
+    // Create result with ellipses + rightmost characters
+    char* result = NULL;
+    if (bytes_to_keep > 0) {
+        result = calloc(ellipses_width + bytes_to_keep + 1, sizeof(char));
+        strcpy(result, "...");
+        // Copy the rightmost bytes_to_keep bytes from original string
+        const char* src_start = str + (strlen(str) - bytes_to_keep);
+        strcpy(result + ellipses_width, src_start);
+    } else {
+        result = strdup("...");
+    }
+
+    return result;
 }
 
 // Read single character with timeout

@@ -1,5 +1,6 @@
 #include "../three-pane-tui.h"
 #include <locale.h>
+#include <unistd.h>
 
 // Global flag for redraw requests
 volatile sig_atomic_t redraw_needed = 0;
@@ -36,6 +37,9 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
 
 // Initialize orchestrator
 three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
+    // Set locale for Unicode support (required for glyph width calculations)
+    setlocale(LC_ALL, "");
+
     three_pane_tui_orchestrator_t* orch = calloc(1, sizeof(three_pane_tui_orchestrator_t));
     if (!orch) return NULL;
 
@@ -132,7 +136,9 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
 // Execute the three-pane-tui module
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     struct timespec last_redraw;
+    struct timespec last_button_click;
     clock_gettime(CLOCK_MONOTONIC, &last_redraw);
+    clock_gettime(CLOCK_MONOTONIC, &last_button_click);
 
     // Set up signal handlers
     struct sigaction sa;
@@ -224,26 +230,22 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                 if (click_y == height - 1) {
                     // Check if click is on the toggle button (around columns 10-20)
                     if (click_x >= 10 && click_x <= 20) {
-                        // Toggle view mode
-                        fprintf(stderr, "DEBUG: Footer button clicked, toggling view mode\n");
-                        view_mode_t old_view = orch->current_view;
-                        orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
-                        fprintf(stderr, "DEBUG: View mode changed from %s to %s\n",
-                               old_view == VIEW_FLAT ? "FLAT" : "TREE",
-                               orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
+                        // Check cooldown (1 second minimum between clicks)
+                        struct timespec now;
+                        clock_gettime(CLOCK_MONOTONIC, &now);
+                        long elapsed_ms = (now.tv_sec - last_button_click.tv_sec) * 1000 +
+                                        (now.tv_nsec - last_button_click.tv_nsec) / 1000000;
 
-                        // Reload data with new view mode
-                        fprintf(stderr, "DEBUG: Calling load_committed_not_pushed_data with view_mode=%s\n",
-                               orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
-                        int load_result = load_committed_not_pushed_data(orch, orch->current_view);
-                        fprintf(stderr, "DEBUG: load_committed_not_pushed_data returned %d\n", load_result);
+                        if (elapsed_ms >= 1000) {
+                            // Toggle view mode
+                            last_button_click = now;
 
-                        if (load_result == 0) {
-                            fprintf(stderr, "DEBUG: Calling draw_tui_overlay\n");
-                            draw_tui_overlay(orch);
-                            fprintf(stderr, "DEBUG: draw_tui_overlay completed successfully\n");
-                        } else {
-                            fprintf(stderr, "DEBUG: load_committed_not_pushed_data failed, not redrawing\n");
+                            orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
+
+                            // Reload data with new view mode
+                            if (load_committed_not_pushed_data(orch, orch->current_view) == 0) {
+                                draw_tui_overlay(orch);
+                            }
                         }
                     }
                 } else {
@@ -283,34 +285,13 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                 // Check for exit keys
                 if (c == 'q' || c == 'Q' || c == 27) { // 27 is Escape
                     running = 0;
-                } else if (c == ' ') {
-                    // Toggle view mode
-                    fprintf(stderr, "DEBUG: Spacebar pressed, toggling view mode\n");
-                    view_mode_t old_view = orch->current_view;
-                    orch->current_view = (orch->current_view == VIEW_FLAT) ? VIEW_TREE : VIEW_FLAT;
-                    fprintf(stderr, "DEBUG: View mode changed from %s to %s\n",
-                           old_view == VIEW_FLAT ? "FLAT" : "TREE",
-                           orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
-
-                    // Reload data with new view mode
-                    fprintf(stderr, "DEBUG: Calling load_committed_not_pushed_data with view_mode=%s\n",
-                           orch->current_view == VIEW_FLAT ? "FLAT" : "TREE");
-                    int load_result = load_committed_not_pushed_data(orch, orch->current_view);
-                    fprintf(stderr, "DEBUG: load_committed_not_pushed_data returned %d\n", load_result);
-
-                    if (load_result == 0) {
-                        fprintf(stderr, "DEBUG: Calling draw_tui_overlay\n");
-                        draw_tui_overlay(orch);
-                        fprintf(stderr, "DEBUG: draw_tui_overlay completed successfully\n");
-                    } else {
-                        fprintf(stderr, "DEBUG: load_committed_not_pushed_data failed, not redrawing\n");
-                    }
                 }
             }
         }
 
         // Small delay to prevent busy waiting
-        usleep(10000); // 10ms
+        struct timespec delay = {0, 10000000}; // 10ms
+        nanosleep(&delay, NULL);
     }
 
     // Cleanup: restore terminal state
