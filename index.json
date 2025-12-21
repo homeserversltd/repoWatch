@@ -11,7 +11,8 @@
   },
   "children": [
     "git-submodules",
-    "committed-not-pushed"
+    "committed-not-pushed",
+    "three-pane-tui"
   ],
   "execution": {
     "mode": "parallel",

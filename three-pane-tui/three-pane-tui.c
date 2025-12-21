@@ -420,6 +420,175 @@ int load_git_submodules_data(three_pane_tui_orchestrator_t* orch) {
     return 0;
 }
 
+// Helper function to check if a filename is a known submodule
+static int is_submodule(const char* filename, char** submodules, size_t submodule_count) {
+    if (!filename || !submodules) return 0;
+    for (size_t i = 0; i < submodule_count; i++) {
+        if (strcmp(filename, submodules[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Read and parse committed-not-pushed-report.json for pane 2
+int load_committed_not_pushed_data(three_pane_tui_orchestrator_t* orch) {
+    // First, read git-submodules.report to get list of known submodules to filter out
+    char** submodules = NULL;
+    size_t submodule_count = 0;
+
+    json_value_t* submodules_report = json_parse_file("git-submodules.report");
+    if (submodules_report && submodules_report->type == JSON_OBJECT) {
+        json_value_t* repos = get_nested_value(submodules_report, "repositories");
+        if (repos && repos->type == JSON_ARRAY) {
+            // Count non-root repositories (submodules)
+            for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+                json_value_t* repo = repos->value.arr_val->items[i];
+                if (repo->type != JSON_OBJECT) continue;
+                json_value_t* name = get_nested_value(repo, "name");
+                if (name && name->type == JSON_STRING && strcmp(name->value.str_val, "root") != 0) {
+                    submodule_count++;
+                }
+            }
+
+            // Allocate and populate submodules array
+            submodules = calloc(submodule_count, sizeof(char*));
+            size_t sub_idx = 0;
+            for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+                json_value_t* repo = repos->value.arr_val->items[i];
+                if (repo->type != JSON_OBJECT) continue;
+                json_value_t* name = get_nested_value(repo, "name");
+                if (name && name->type == JSON_STRING && strcmp(name->value.str_val, "root") != 0) {
+                    submodules[sub_idx++] = strdup(name->value.str_val);
+                }
+            }
+        }
+    }
+
+    json_value_t* report = json_parse_file("committed-not-pushed-report.json");
+    if (!report || report->type != JSON_OBJECT) {
+        fprintf(stderr, "Error: Cannot parse committed-not-pushed-report.json\n");
+        if (submodules_report) json_free(submodules_report);
+        return 1;
+    }
+
+    json_value_t* repos = get_nested_value(report, "repositories");
+    if (!repos || repos->type != JSON_ARRAY) {
+        fprintf(stderr, "Error: No repositories array in committed-not-pushed-report.json\n");
+        json_free(report);
+        if (submodules_report) json_free(submodules_report);
+        return 1;
+    }
+
+    // Count total items needed (repository headers + commits + non-submodule files)
+    size_t total_items = 0;
+    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+        json_value_t* repo = repos->value.arr_val->items[i];
+        if (repo->type != JSON_OBJECT) continue;
+
+        json_value_t* commits = get_nested_value(repo, "unpushed_commits");
+        if (commits && commits->type == JSON_ARRAY) {
+            total_items += 1; // Repository header
+            for (size_t j = 0; j < commits->value.arr_val->count; j++) {
+                json_value_t* commit = commits->value.arr_val->items[j];
+                if (commit->type != JSON_OBJECT) continue;
+                total_items += 1; // Commit info
+                json_value_t* files = get_nested_value(commit, "files_changed");
+                if (files && files->type == JSON_ARRAY) {
+                    // Count only non-submodule files
+                    for (size_t k = 0; k < files->value.arr_val->count; k++) {
+                        json_value_t* file = files->value.arr_val->items[k];
+                        if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
+                            total_items++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    orch->data.pane2_count = total_items;
+    orch->data.pane2_items = calloc(total_items, sizeof(char*));
+
+    // Parse committed not pushed data from each repository
+    size_t item_index = 0;
+    for (size_t i = 0; i < repos->value.arr_val->count; i++) {
+        json_value_t* repo = repos->value.arr_val->items[i];
+        if (repo->type != JSON_OBJECT) continue;
+
+        json_value_t* repo_name = get_nested_value(repo, "name");
+        json_value_t* commits = get_nested_value(repo, "unpushed_commits");
+
+        if (!repo_name || repo_name->type != JSON_STRING) continue;
+        if (!commits || commits->type != JSON_ARRAY) continue;
+
+        // Add repository header - use actual repo name from path if available
+        json_value_t* repo_path = get_nested_value(repo, "path");
+        char header_buffer[512];
+        if (repo_path && repo_path->type == JSON_STRING) {
+            // Extract repo name from path (last component after '/')
+            const char* path = repo_path->value.str_val;
+            const char* repo_name_from_path = strrchr(path, '/');
+            if (repo_name_from_path) {
+                repo_name_from_path++; // Skip the '/'
+                snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name_from_path);
+            } else {
+                snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name->value.str_val);
+            }
+        } else {
+            snprintf(header_buffer, sizeof(header_buffer), "Repository: %s", repo_name->value.str_val);
+        }
+        orch->data.pane2_items[item_index++] = strdup(header_buffer);
+
+        // Add each commit and its files
+        for (size_t j = 0; j < commits->value.arr_val->count; j++) {
+            json_value_t* commit = commits->value.arr_val->items[j];
+            if (commit->type != JSON_OBJECT) continue;
+
+            json_value_t* commit_info = get_nested_value(commit, "commit_info");
+            json_value_t* files_changed = get_nested_value(commit, "files_changed");
+
+            // Add commit info
+            if (commit_info && commit_info->type == JSON_STRING) {
+                char commit_buffer[1024];
+                // Truncate commit info if too long
+                const char* info = commit_info->value.str_val;
+                if (strlen(info) > 60) {
+                    snprintf(commit_buffer, sizeof(commit_buffer), "└── %.60s...", info);
+                } else {
+                    snprintf(commit_buffer, sizeof(commit_buffer), "└── %s", info);
+                }
+                orch->data.pane2_items[item_index++] = strdup(commit_buffer);
+            }
+
+            // Add files changed (skip submodules)
+            if (files_changed && files_changed->type == JSON_ARRAY) {
+                for (size_t k = 0; k < files_changed->value.arr_val->count; k++) {
+                    json_value_t* file = files_changed->value.arr_val->items[k];
+                    if (file->type == JSON_STRING && !is_submodule(file->value.str_val, submodules, submodule_count)) {
+                        char file_buffer[1024];
+                        snprintf(file_buffer, sizeof(file_buffer), "    ├── %s", file->value.str_val);
+                        orch->data.pane2_items[item_index++] = strdup(file_buffer);
+                    }
+                }
+            }
+        }
+    }
+
+    json_free(report);
+    if (submodules_report) json_free(submodules_report);
+
+    // Cleanup submodules array
+    if (submodules) {
+        for (size_t i = 0; i < submodule_count; i++) {
+            free(submodules[i]);
+        }
+        free(submodules);
+    }
+
+    return 0;
+}
+
 // Read and parse dirty-files-report.json for pane 2
 int load_dirty_files_data(three_pane_tui_orchestrator_t* orch) {
     json_value_t* report = json_parse_file("dirty-files-report.json");
@@ -516,14 +685,13 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
         return NULL;
     }
 
-    // Load dynamic data from report files
-    if (load_git_submodules_data(orch) != 0) {
-        fprintf(stderr, "Warning: Failed to load git-submodules data, using fallback\n");
-        // Could add fallback data here if needed
-    }
+    // Load hardcoded data for pane 1 (left pane)
+    orch->data.pane1_count = 1;
+    orch->data.pane1_items = calloc(1, sizeof(char*));
+    orch->data.pane1_items[0] = strdup("n00dles");
 
-    if (load_dirty_files_data(orch) != 0) {
-        fprintf(stderr, "Warning: Failed to load dirty-files data, using fallback\n");
+    if (load_committed_not_pushed_data(orch) != 0) {
+        fprintf(stderr, "Warning: Failed to load committed-not-pushed data, using fallback\n");
         // Could add fallback data here if needed
     }
 
@@ -573,7 +741,7 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
 }
 
 // Draw a single pane
-void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles) {
+void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index) {
     // Draw title at the top of the pane (row 3, since row 1 is main title, row 2 is header separator)
     move_cursor(3, start_col);
     set_color(title_color);
@@ -590,7 +758,18 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
         // Apply color based on file type
         int file_color = get_file_color(items[i], styles);
         set_color(file_color);
-        printf("%s", items[i]);
+
+        // Truncate text to fit within pane width (leave room for potential border)
+        const char* text = items[i];
+        int max_text_width = width - 2; // Leave some margin
+        if (strlen(text) > max_text_width) {
+            // Truncate and add ellipsis
+            char truncated[1024];
+            snprintf(truncated, sizeof(truncated), "%.*s...", max_text_width - 3, text);
+            printf("%s", truncated);
+        } else {
+            printf("%s", text);
+        }
         reset_colors();
         current_row++;
     }

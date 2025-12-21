@@ -2,7 +2,7 @@
   "metadata": {
     "schema_version": "1.0.0",
     "name": "Three Pane TUI Display",
-    "description": "Three-pane terminal UI with configurable styling and file colorization"
+    "description": "Three-pane terminal UI displaying git-submodules, committed-not-pushed analysis, and system info"
   },
   "paths": {},
   "children": [],
@@ -12,11 +12,11 @@
     "parallel": false
   },
   "config": {
-    "title": "Three Pane TUI Demo",
+    "title": "repoWatch Three Pane Display",
     "exit_keys": "qQ",
-    "pane1_title": "Left Pane",
-    "pane2_title": "Center Pane",
-    "pane3_title": "Right Pane"
+    "pane1_title": "Git Submodules",
+    "pane2_title": "Committed Not Pushed",
+    "pane3_title": "System Info"
   },
   "styles": {
     "color_schemes": {
