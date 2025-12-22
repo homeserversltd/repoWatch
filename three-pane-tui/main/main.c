@@ -19,9 +19,9 @@ int load_config(three_pane_tui_orchestrator_t* orch) {
     // Extract config values with defaults
     orch->config.title = expandvars("Three Pane TUI Demo");
     orch->config.exit_keys = strdup("qQ");
-    orch->config.pane1_title = strdup("");  // Empty - repo headers provide context
-    orch->config.pane2_title = strdup("");  // Empty - repo headers provide context
-    orch->config.pane3_title = strdup("");  // Empty - repo headers provide context
+    orch->config.pane1_title = strdup("Dirty files");
+    orch->config.pane2_title = strdup("Committed Files");
+    orch->config.pane3_title = strdup("Active files");
     orch->config.default_view = VIEW_FLAT;
     orch->current_view = orch->config.default_view;
 
