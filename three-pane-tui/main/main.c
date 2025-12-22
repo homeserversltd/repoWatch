@@ -7,6 +7,9 @@
 // Global flag for redraw requests
 volatile sig_atomic_t redraw_needed = 0;
 
+// Global flag for interrupt signal (Ctrl+C)
+volatile sig_atomic_t interrupt_received = 0;
+
 // Load configuration from index.json
 int load_config(three_pane_tui_orchestrator_t* orch) {
     // Load JSON config
@@ -357,6 +360,12 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     sigemptyset(&sa.sa_mask);
     sigaction(SIGWINCH, &sa, NULL);
 
+    // Interrupt handler (Ctrl+C)
+    sa.sa_handler = handle_sigint;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+
     // Emergency cleanup handlers for crash signals
     sa.sa_handler = emergency_cleanup;
     sa.sa_flags = 0;
@@ -429,6 +438,12 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
         iteration_count++;
         struct timespec iteration_start;
         clock_gettime(CLOCK_MONOTONIC, &iteration_start);
+
+        // Check for interrupt signal (Ctrl+C)
+        if (interrupt_received) {
+            running = 0;
+            continue;
+        }
 
         // Debug output for first few iterations
         if (iteration_count <= 3) {

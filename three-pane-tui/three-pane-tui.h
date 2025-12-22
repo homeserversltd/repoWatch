@@ -129,6 +129,7 @@ extern volatile sig_atomic_t redraw_needed;
 
 // Function declarations
 void handle_sigwinch(int sig);
+void handle_sigint(int sig);
 void emergency_cleanup(int sig);
 
 // Core module functions

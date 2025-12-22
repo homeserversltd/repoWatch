@@ -7,9 +7,17 @@
 // Global flag for redraw requests (defined in main module)
 extern volatile sig_atomic_t redraw_needed;
 
+// Global flag for interrupt signal (defined in main module)
+extern volatile sig_atomic_t interrupt_received;
+
 // Signal handler for window resize
 void handle_sigwinch(int sig) {
     redraw_needed = 1;
+}
+
+// Signal handler for interrupt (Ctrl+C)
+void handle_sigint(int sig) {
+    interrupt_received = 1;
 }
 
 // Emergency cleanup handler for crash signals

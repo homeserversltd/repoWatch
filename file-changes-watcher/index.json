@@ -2,7 +2,7 @@
   "metadata": {
     "schema_version": "1.0.0",
     "name": "File Changes Watcher",
-    "description": "Tracks file change timestamps from dirty-files-report.json and maintains active file change state"
+    "description": "Polls modification times (mtime) of all tracked git files across all repos and maintains active file change state"
   },
   "paths": {
     "repo_path": "/home/owner/git/serverGenesis"
