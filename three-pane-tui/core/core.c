@@ -125,6 +125,12 @@ void disable_mouse_reporting() {
 int read_mouse_event(int* button, int* x, int* y, int* scroll_delta) {
     unsigned char buf[16]; // Smaller buffer, mouse events are typically 6-8 bytes
 
+    // Initialize output parameters
+    if (button) *button = 0;
+    if (x) *x = 0;
+    if (y) *y = 0;
+    if (scroll_delta) *scroll_delta = 0;
+
     // First, peek at 1 byte to see if this could be a mouse event
     int n = read(STDIN_FILENO, buf, 1);
     if (n <= 0) return -1; // No data
@@ -136,7 +142,10 @@ int read_mouse_event(int* button, int* x, int* y, int* scroll_delta) {
 
     // Read 2 more bytes to check for [< pattern
     n = read(STDIN_FILENO, buf + 1, 2);
-    if (n < 2) return -3; // Incomplete
+    if (n < 2) {
+        // CRITICAL FIX: Incomplete read - don't leave terminal in bad state
+        return -3; // Incomplete
+    }
 
     // Check if this looks like a mouse event start: \e[<
     if (buf[1] == '[' && buf[2] == '<') {

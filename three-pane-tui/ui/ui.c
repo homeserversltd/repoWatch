@@ -21,6 +21,19 @@ void update_scroll_state(pane_scroll_state_t* scroll_state, int viewport_height,
 void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction) {
     if (!scroll_state) return;
 
+    // CRITICAL FIX: Validate max_scroll is valid
+    if (scroll_state->max_scroll < 0) {
+        scroll_state->max_scroll = 0;
+    }
+
+    // Clamp current position before updating
+    if (scroll_state->scroll_position < 0) {
+        scroll_state->scroll_position = 0;
+    }
+    if (scroll_state->scroll_position > scroll_state->max_scroll) {
+        scroll_state->scroll_position = scroll_state->max_scroll;
+    }
+
     if (direction > 0) {
         // Scroll down
         if (scroll_state->scroll_position < scroll_state->max_scroll) {
@@ -33,7 +46,7 @@ void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction) {
         }
     }
 
-    // Ensure scroll position stays within bounds
+    // Ensure scroll position stays within bounds (redundant but safe)
     if (scroll_state->scroll_position < 0) {
         scroll_state->scroll_position = 0;
     }
@@ -163,45 +176,56 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
         return;
     }
 
-    // Calculate which items to show based on scroll position
-    size_t start_item = scroll_state ? scroll_state->scroll_position : 0;
-    size_t end_item = start_item + height;
-
-    if (end_item > item_count) {
-        end_item = item_count;
-    }
-
-    // Phase 1: Assign alternating colors to consecutive repositories
-    int* item_colors = calloc(end_item - start_item, sizeof(int));
-    size_t color_idx = 0;
+    // Phase 1: Assign alternating colors to ALL items (before calculating visible range)
+    int* item_colors = calloc(item_count, sizeof(int));
     int current_repo_color = 0; // Will be assigned alternating colors 1, 2, 3, 4, etc.
 
-    for (size_t i = start_item; i < end_item; i++) {
+    for (size_t i = 0; i < item_count; i++) {
         char* repo_name = extract_repo_name_from_header(items[i]);
         if (repo_name) {
             // Repository header - assign next alternating color
             current_repo_color++;
             // Wrap around to rainbow table (1-8)
             if (current_repo_color > 8) current_repo_color = 1;
-            item_colors[color_idx] = current_repo_color;
+            item_colors[i] = current_repo_color;
             free(repo_name);
         } else {
             // Content item - use the current repository's color
-            item_colors[color_idx] = current_repo_color;
+            item_colors[i] = current_repo_color;
         }
-        color_idx++;
+    }
+
+    // Calculate which items to show based on scroll position
+    size_t start_item = scroll_state ? scroll_state->scroll_position : 0;
+
+    // CRITICAL FIX: Validate start_item against item_count
+    if (start_item >= item_count) {
+        start_item = (item_count > 0) ? item_count - 1 : 0;
+    }
+
+    size_t end_item = start_item + height;
+    if (end_item > item_count) {
+        end_item = item_count;
+    }
+
+    // Additional safety: ensure start_item doesn't exceed end_item
+    if (start_item > end_item) {
+        start_item = (end_item > 0) ? end_item - 1 : 0;
     }
 
     // Draw visible items only
-    size_t display_idx = 0;
     for (size_t i = start_item; i < end_item && current_row <= max_row; i++) {
+        // CRITICAL FIX: Validate array access
+        if (i >= item_count || !items[i]) {
+            break; // Safety: stop if out of bounds
+        }
         move_cursor(current_row, start_col);
 
         // Check if this is a repository header
         char* repo_name = extract_repo_name_from_header(items[i]);
         if (repo_name) {
             // This is a repository header - center it and use adjusted repo color
-            int repo_ansi_color = color_index_to_ansi(item_colors[display_idx]);
+            int repo_ansi_color = color_index_to_ansi(item_colors[i]);
 
             // Center the header text within the pane width
             int text_len = strlen(items[i]);
@@ -218,7 +242,7 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
             free(repo_name);
         } else {
             // This is a content item - use adjusted repo color or file color
-            int item_color = item_colors[display_idx] ? color_index_to_ansi(item_colors[display_idx]) : get_file_color(items[i], styles);
+            int item_color = item_colors[i] ? color_index_to_ansi(item_colors[i]) : get_file_color(items[i], styles);
             set_color(item_color);
 
             // Smart truncation prioritizing filename over directory path
@@ -235,8 +259,6 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
             }
             reset_colors();
         }
-
-        display_idx++;
 
         current_row++;
     }

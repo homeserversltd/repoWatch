@@ -291,6 +291,15 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                     pane_height = height - 5;
                     update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
                     update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+
+                    // CRITICAL FIX: Clamp scroll positions after data refresh
+                    if (orch->data.pane1_scroll.scroll_position > orch->data.pane1_scroll.max_scroll) {
+                        orch->data.pane1_scroll.scroll_position = orch->data.pane1_scroll.max_scroll;
+                    }
+                    if (orch->data.pane2_scroll.scroll_position > orch->data.pane2_scroll.max_scroll) {
+                        orch->data.pane2_scroll.scroll_position = orch->data.pane2_scroll.max_scroll;
+                    }
+
                     // pane3 uses animations, not scroll state
                 }
                 draw_tui_overlay(orch);
@@ -441,17 +450,28 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                         case 3: scroll_state = NULL; break; // Pane 3 uses animations, no scroll state
                     }
                     if (scroll_state) {
-                        update_pane_scroll(scroll_state, scroll_delta);
-
-                        // Throttle redraws to prevent crashes from rapid mouse events
+                        // CRITICAL FIX: Throttle scroll updates to prevent rapid accumulation
+                        static struct timespec last_scroll_update = {0, 0};
                         struct timespec now;
                         clock_gettime(CLOCK_MONOTONIC, &now);
-                        long elapsed_ms = (now.tv_sec - last_redraw.tv_sec) * 1000 +
-                                        (now.tv_nsec - last_redraw.tv_nsec) / 1000000;
+                        long elapsed_ms = (now.tv_sec - last_scroll_update.tv_sec) * 1000 +
+                                         (now.tv_nsec - last_scroll_update.tv_nsec) / 1000000;
 
-                        if (elapsed_ms >= 50) { // Minimum 50ms between redraws
+                        // Only update scroll if at least 10ms have passed (prevents rapid accumulation)
+                        if (elapsed_ms >= 10) {
+                            update_pane_scroll(scroll_state, scroll_delta);
+                            last_scroll_update = now;
+                        }
+
+                        // Throttle redraws to prevent crashes from rapid mouse events
+                        struct timespec now_redraw;
+                        clock_gettime(CLOCK_MONOTONIC, &now_redraw);
+                        long elapsed_ms_redraw = (now_redraw.tv_sec - last_redraw.tv_sec) * 1000 +
+                                                (now_redraw.tv_nsec - last_redraw.tv_nsec) / 1000000;
+
+                        if (elapsed_ms_redraw >= 50) { // Minimum 50ms between redraws
                             draw_tui_overlay(orch);
-                            last_redraw = now;
+                            last_redraw = now_redraw;
                         }
                     }
                 }
