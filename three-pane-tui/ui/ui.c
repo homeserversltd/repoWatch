@@ -18,8 +18,8 @@ void update_scroll_state(pane_scroll_state_t* scroll_state, int viewport_height,
 }
 
 // Update pane scroll position
-void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction) {
-    if (!scroll_state) return;
+void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction, int amount) {
+    if (!scroll_state || amount <= 0) return;
 
     // CRITICAL FIX: Validate max_scroll is valid
     if (scroll_state->max_scroll < 0) {
@@ -34,19 +34,12 @@ void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction) {
         scroll_state->scroll_position = scroll_state->max_scroll;
     }
 
-    if (direction > 0) {
-        // Scroll down
-        if (scroll_state->scroll_position < scroll_state->max_scroll) {
-            scroll_state->scroll_position++;
-        }
-    } else if (direction < 0) {
-        // Scroll up
-        if (scroll_state->scroll_position > 0) {
-            scroll_state->scroll_position--;
-        }
-    }
+    int delta = direction * amount;
 
-    // Ensure scroll position stays within bounds (redundant but safe)
+    // Update scroll position
+    scroll_state->scroll_position += delta;
+
+    // Ensure scroll position stays within bounds
     if (scroll_state->scroll_position < 0) {
         scroll_state->scroll_position = 0;
     }
@@ -355,6 +348,35 @@ void draw_tui_overlay(three_pane_tui_orchestrator_t* orch) {
     // Rightmost pane gets any remaining width minus the border (uses animations, not items)
     draw_pane(pane_width * 2 + 1, pane_width + remaining_width - 1, pane_height, orch->config.pane3_title,
               NULL, 0, orch->config.styles.ui.pane_titles.right, &orch->config.styles, 3, NULL, orch);
+
+    // Show fast scroll progress bar in pane 1 if active (overlay on content)
+    if (is_scroll_animation_active(orch)) {
+        // Calculate animation progress
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        double elapsed = (now.tv_sec - orch->data.scroll_animation.start_time.tv_sec) +
+                        (now.tv_nsec - orch->data.scroll_animation.start_time.tv_nsec) / 1e9;
+        double progress = elapsed / orch->data.scroll_animation.duration_sec;
+        if (progress > 1.0) progress = 1.0;
+
+        // Display progress bar in the bottom of pane 1 (overlay on content)
+        int progress_row = 3 + pane_height - 1; // Bottom row of pane 1
+        int progress_col = 1; // Start of pane 1
+
+        move_cursor(progress_row, progress_col);
+        set_color(32); // Green for progress bar
+        set_bold();
+        printf("FAST SCROLL [");
+        int bar_width = pane_width - 15; // Leave space for text
+        if (bar_width > 20) bar_width = 20; // Cap at reasonable width
+        int filled = (int)(progress * bar_width);
+        for (int i = 0; i < bar_width; i++) {
+            if (i < filled) printf("█");
+            else printf("░");
+        }
+        printf("] %.0f%%", progress * 100.0);
+        reset_colors();
+    }
 
     // Footer at bottom (after the horizontal separator)
     move_cursor(height, 1);

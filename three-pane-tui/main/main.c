@@ -1,6 +1,8 @@
 #include "../three-pane-tui.h"
 #include <locale.h>
 #include <unistd.h>
+#include <math.h>
+#include <stdbool.h>
 
 // Global flag for redraw requests
 volatile sig_atomic_t redraw_needed = 0;
@@ -78,6 +80,9 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
     orch->data.pane2_scroll.total_items = orch->data.pane2_count;
     // pane3 uses animations, not scroll state
 
+    // Initialize scroll animation state
+    memset(&orch->data.scroll_animation, 0, sizeof(scroll_animation_t));
+
     if (load_committed_not_pushed_data(orch, orch->current_view) != 0) {
         fprintf(stderr, "Warning: Failed to load committed-not-pushed data, using fallback\n");
         // Could add fallback data here if needed
@@ -144,6 +149,189 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
     }
 }
 
+// Scroll detection helper functions
+#define SCROLL_HISTORY_SIZE 10
+
+static struct timespec scroll_timestamps[SCROLL_HISTORY_SIZE];
+static int scroll_directions[SCROLL_HISTORY_SIZE];
+static int scroll_history_count = 0;
+static int scroll_history_index = 0;
+
+double calculate_scroll_frequency(void) {
+    if (scroll_history_count < 2) return 0.0;
+
+    // Calculate time span of recent scroll events
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    struct timespec earliest = scroll_timestamps[(scroll_history_index - scroll_history_count + SCROLL_HISTORY_SIZE) % SCROLL_HISTORY_SIZE];
+    double time_span = (now.tv_sec - earliest.tv_sec) + (now.tv_nsec - earliest.tv_nsec) / 1e9;
+
+    if (time_span <= 0.0) return 0.0;
+
+    return scroll_history_count / time_span; // events per second
+}
+
+int count_consecutive_scrolls(void) {
+    if (scroll_history_count < 2) return 0;
+
+    // Count consecutive scrolls in same direction
+    int consecutive = 1;
+    int last_direction = scroll_directions[(scroll_history_index - 1 + SCROLL_HISTORY_SIZE) % SCROLL_HISTORY_SIZE];
+
+    for (int i = 2; i <= scroll_history_count && i <= SCROLL_HISTORY_SIZE; i++) {
+        int idx = (scroll_history_index - i + SCROLL_HISTORY_SIZE) % SCROLL_HISTORY_SIZE;
+        if (scroll_directions[idx] == last_direction) {
+            consecutive++;
+        } else {
+            break;
+        }
+    }
+
+    return consecutive;
+}
+
+double calculate_scroll_acceleration(void) {
+    if (scroll_history_count < 3) return 0.0;
+
+    // Calculate acceleration as change in scroll frequency
+    // Simplified: number of direction changes in recent history
+    int direction_changes = 0;
+    int last_direction = scroll_directions[(scroll_history_index - 1 + SCROLL_HISTORY_SIZE) % SCROLL_HISTORY_SIZE];
+
+    for (int i = 2; i <= scroll_history_count && i <= SCROLL_HISTORY_SIZE; i++) {
+        int idx = (scroll_history_index - i + SCROLL_HISTORY_SIZE) % SCROLL_HISTORY_SIZE;
+        if (scroll_directions[idx] != last_direction) {
+            direction_changes++;
+            last_direction = scroll_directions[idx];
+        }
+    }
+
+    // Lower direction changes = higher acceleration (consistent direction)
+    return (double)(scroll_history_count - direction_changes) / scroll_history_count;
+}
+
+void record_scroll_event(int direction) {
+    // Record timestamp and direction
+    clock_gettime(CLOCK_MONOTONIC, &scroll_timestamps[scroll_history_index]);
+    scroll_directions[scroll_history_index] = direction;
+
+    scroll_history_index = (scroll_history_index + 1) % SCROLL_HISTORY_SIZE;
+    if (scroll_history_count < SCROLL_HISTORY_SIZE) {
+        scroll_history_count++;
+    }
+}
+
+bool is_fast_scrolling_detected(void) {
+    double events_per_second = calculate_scroll_frequency();
+    int consecutive_events = count_consecutive_scrolls();
+    double acceleration = calculate_scroll_acceleration();
+
+    // More conservative thresholds for fast scrolling detection
+    bool is_fast = (events_per_second > 8.0) ||  // Need 8+ events per second
+                   (consecutive_events >= 5) ||  // Need 5+ consecutive scrolls
+                   (acceleration > 2.5);         // Need high acceleration
+
+
+    return is_fast;
+}
+
+bool is_at_scroll_boundary(pane_scroll_state_t* scroll_state, int direction) {
+    if (!scroll_state) return true;
+
+    if (direction > 0) { // Scrolling down
+        return scroll_state->scroll_position >= scroll_state->max_scroll;
+    } else if (direction < 0) { // Scrolling up
+        return scroll_state->scroll_position <= 0;
+    }
+
+    return false;
+}
+
+// Scroll animation functions for smooth transitions
+void start_scroll_animation(three_pane_tui_orchestrator_t* orch, int pane_index, int target_position) {
+    if (!orch) return;
+
+    // Get current scroll position
+    pane_scroll_state_t* scroll_state = NULL;
+    switch (pane_index) {
+        case 1: scroll_state = &orch->data.pane1_scroll; break;
+        case 2: scroll_state = &orch->data.pane2_scroll; break;
+        default: return; // Pane 3 doesn't use scroll state
+    }
+    if (!scroll_state) return;
+
+    // Clamp target position to valid range
+    if (target_position < 0) target_position = 0;
+    if (target_position > scroll_state->max_scroll) target_position = scroll_state->max_scroll;
+
+    // Start animation
+    orch->data.scroll_animation.is_animating = 1;
+    orch->data.scroll_animation.start_position = scroll_state->scroll_position;
+    orch->data.scroll_animation.target_position = target_position;
+    orch->data.scroll_animation.pane_index = pane_index;
+    orch->data.scroll_animation.duration_sec = 0.15; // 150ms animation for snappy feel
+    clock_gettime(CLOCK_MONOTONIC, &orch->data.scroll_animation.start_time);
+}
+
+void update_scroll_animation(three_pane_tui_orchestrator_t* orch) {
+    if (!orch || !orch->data.scroll_animation.is_animating) return;
+
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    // Calculate elapsed time
+    double elapsed = (now.tv_sec - orch->data.scroll_animation.start_time.tv_sec) +
+                    (now.tv_nsec - orch->data.scroll_animation.start_time.tv_nsec) / 1e9;
+
+    // Check if animation is complete
+    if (elapsed >= orch->data.scroll_animation.duration_sec) {
+        // Animation complete - set final position
+        pane_scroll_state_t* scroll_state = NULL;
+        switch (orch->data.scroll_animation.pane_index) {
+            case 1: scroll_state = &orch->data.pane1_scroll; break;
+            case 2: scroll_state = &orch->data.pane2_scroll; break;
+        }
+        if (scroll_state) {
+            scroll_state->scroll_position = orch->data.scroll_animation.target_position;
+        }
+        orch->data.scroll_animation.is_animating = 0;
+        return;
+    }
+
+    // Ease-out animation (starts fast, slows down)
+    double progress = elapsed / orch->data.scroll_animation.duration_sec;
+    double eased_progress = 1.0 - pow(1.0 - progress, 3.0); // Cubic ease-out
+
+    // Calculate current position
+    int start_pos = orch->data.scroll_animation.start_position;
+    int target_pos = orch->data.scroll_animation.target_position;
+    int current_pos = start_pos + (int)((target_pos - start_pos) * eased_progress);
+
+    // Update scroll position
+    pane_scroll_state_t* scroll_state = NULL;
+    switch (orch->data.scroll_animation.pane_index) {
+        case 1: scroll_state = &orch->data.pane1_scroll; break;
+        case 2: scroll_state = &orch->data.pane2_scroll; break;
+    }
+    if (scroll_state) {
+        scroll_state->scroll_position = current_pos;
+        // Ensure bounds
+        if (scroll_state->scroll_position < 0) scroll_state->scroll_position = 0;
+        if (scroll_state->scroll_position > scroll_state->max_scroll) scroll_state->scroll_position = scroll_state->max_scroll;
+    }
+}
+
+int is_scroll_animation_active(three_pane_tui_orchestrator_t* orch) {
+    return orch && orch->data.scroll_animation.is_animating;
+}
+
+void cancel_scroll_animation(three_pane_tui_orchestrator_t* orch) {
+    if (orch) {
+        orch->data.scroll_animation.is_animating = 0;
+    }
+}
+
 // Execute the three-pane-tui module
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     // TEMPORARILY DISABLE TTY CHECK TO SEE ACTUAL CRASH
@@ -202,7 +390,14 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     save_cursor_position();
 
     // Draw the initial TUI overlay
+    struct timespec initial_draw_start, initial_draw_end;
+    clock_gettime(CLOCK_MONOTONIC, &initial_draw_start);
     draw_tui_overlay(orch);
+    clock_gettime(CLOCK_MONOTONIC, &initial_draw_end);
+
+    double initial_draw_time = (initial_draw_end.tv_sec - initial_draw_start.tv_sec) +
+                              (initial_draw_end.tv_nsec - initial_draw_start.tv_nsec) / 1e9;
+    fprintf(stderr, "PERF: INITIAL DRAW: %.3f seconds\n", initial_draw_time);
 
     // Main input loop
     int running = 1;
@@ -226,8 +421,14 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
 
     int iteration_count = 0;
+    struct timespec loop_start_time, last_log_time;
+    clock_gettime(CLOCK_MONOTONIC, &loop_start_time);
+    clock_gettime(CLOCK_MONOTONIC, &last_log_time);
+
     while (running) {
         iteration_count++;
+        struct timespec iteration_start;
+        clock_gettime(CLOCK_MONOTONIC, &iteration_start);
 
         // Debug output for first few iterations
         if (iteration_count <= 3) {
@@ -236,8 +437,18 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
         // Periodic debug output (every 1000 iterations)
         if (iteration_count % 1000 == 0) {
-            fprintf(stderr, "DEBUG: Main loop iteration %d, animations: %zu, width: %d, height: %d\n",
-                   iteration_count, orch->data.active_animation_count, width, height);
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            double time_since_start = (now.tv_sec - loop_start_time.tv_sec) +
+                                     (now.tv_nsec - loop_start_time.tv_nsec) / 1e9;
+            double time_since_last_log = (now.tv_sec - last_log_time.tv_sec) +
+                                        (now.tv_nsec - last_log_time.tv_nsec) / 1e9;
+
+            fprintf(stderr, "PERF: Iteration %d (%.2fs total, %.2fs since last log), animations: %zu, width: %d, height: %d\n",
+                   iteration_count, time_since_start, time_since_last_log,
+                   orch->data.active_animation_count, width, height);
+
+            clock_gettime(CLOCK_MONOTONIC, &last_log_time);
         }
 
         // Check for redraw request from signal handler
@@ -381,12 +592,17 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             last_git_check = now;  // Reset timer
         }
 
+        // Update any active scroll animations for smooth transitions
+        update_scroll_animation(orch);
+
         // Try to read mouse events first (they start with \033)
         int button, x, y, scroll_delta;
         if (iteration_count <= 3) {
             fprintf(stderr, "DEBUG: About to call read_mouse_event\n");
         }
+
         int mouse_result = read_mouse_event(&button, &x, &y, &scroll_delta);
+
         if (iteration_count <= 3) {
             fprintf(stderr, "DEBUG: read_mouse_event returned %d\n", mouse_result);
         }
@@ -452,6 +668,9 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                     if (scroll_state) {
                         // CRITICAL FIX: Throttle scroll updates to prevent rapid accumulation
                         static struct timespec last_scroll_update = {0, 0};
+                        static int accumulated_scroll_delta = 0;
+                        static int current_fast_scroll_pane = 0;
+
                         struct timespec now;
                         clock_gettime(CLOCK_MONOTONIC, &now);
                         long elapsed_ms = (now.tv_sec - last_scroll_update.tv_sec) * 1000 +
@@ -459,20 +678,78 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
                         // Only update scroll if at least 10ms have passed (prevents rapid accumulation)
                         if (elapsed_ms >= 10) {
-                            update_pane_scroll(scroll_state, scroll_delta);
-                            last_scroll_update = now;
+                            // Record scroll event for hybrid detection
+                            record_scroll_event(scroll_delta);
+
+                            // Check if we're at scroll boundaries to prevent stuttering
+                            bool at_boundary = is_at_scroll_boundary(scroll_state, scroll_delta);
+                            if (at_boundary) {
+                                // At boundary - don't process scroll to prevent stuttering
+                                last_scroll_update = now;
+                            } else {
+                                // Not at boundary - process scroll normally
+                                // Use hybrid detection for fast scrolling
+                                bool is_fast_scrolling = is_fast_scrolling_detected();
+
+                                if (is_fast_scrolling) {
+                                // Fast scrolling: accumulate scroll deltas instead of immediate updates
+                                accumulated_scroll_delta += scroll_delta * 4; // Always use 4x for fast scrolling
+                                current_fast_scroll_pane = pane_index;
+
+                                // Cancel any existing scroll animation
+                                cancel_scroll_animation(orch);
+
+                                // Throttle redraws during fast scrolling (200ms vs 50ms for slow)
+                                struct timespec now_redraw;
+                                clock_gettime(CLOCK_MONOTONIC, &now_redraw);
+                                long elapsed_ms_redraw = (now_redraw.tv_sec - last_redraw.tv_sec) * 1000 +
+                                                        (now_redraw.tv_nsec - last_redraw.tv_nsec) / 1000000;
+
+                                if (elapsed_ms_redraw >= 200) { // Longer throttle for fast scrolling
+                                    // Calculate target position based on accumulated delta
+                                    int target_position = scroll_state->scroll_position + accumulated_scroll_delta;
+
+                                    // Clamp target to valid range
+                                    if (target_position < 0) target_position = 0;
+                                    if (target_position > scroll_state->max_scroll) target_position = scroll_state->max_scroll;
+
+                                    // Start smooth scroll animation to target position
+                                    start_scroll_animation(orch, pane_index, target_position);
+
+                                    // Reset accumulated delta
+                                    accumulated_scroll_delta = 0;
+
+                                    draw_tui_overlay(orch);
+                                    last_redraw = now_redraw;
+                                }
+                            } else {
+                                // Slow scrolling: immediate updates with normal redraws
+
+                                // Cancel any ongoing fast scroll animation
+                                if (current_fast_scroll_pane == pane_index) {
+                                    cancel_scroll_animation(orch);
+                                    accumulated_scroll_delta = 0;
+                                    current_fast_scroll_pane = 0;
+                                }
+
+                                // Immediate scroll update
+                                update_pane_scroll(scroll_state, scroll_delta, 1);
+
+                                // Immediate redraw for snappy feel
+                                struct timespec now_redraw;
+                                clock_gettime(CLOCK_MONOTONIC, &now_redraw);
+                                long elapsed_ms_redraw = (now_redraw.tv_sec - last_redraw.tv_sec) * 1000 +
+                                                        (now_redraw.tv_nsec - last_redraw.tv_nsec) / 1000000;
+
+                                if (elapsed_ms_redraw >= 50) { // Normal 50ms throttle for slow scrolling
+                                    draw_tui_overlay(orch);
+                                    last_redraw = now_redraw;
+                                }
+                                }
+                            }
                         }
 
-                        // Throttle redraws to prevent crashes from rapid mouse events
-                        struct timespec now_redraw;
-                        clock_gettime(CLOCK_MONOTONIC, &now_redraw);
-                        long elapsed_ms_redraw = (now_redraw.tv_sec - last_redraw.tv_sec) * 1000 +
-                                                (now_redraw.tv_nsec - last_redraw.tv_nsec) / 1000000;
-
-                        if (elapsed_ms_redraw >= 50) { // Minimum 50ms between redraws
-                            draw_tui_overlay(orch);
-                            last_redraw = now_redraw;
-                        }
+                        last_scroll_update = now;
                     }
                 }
             }
@@ -495,6 +772,15 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
         struct timespec delay = {0, 10000000}; // 10ms
         nanosleep(&delay, NULL);
     }
+
+    // Final performance summary
+    struct timespec session_end_time;
+    clock_gettime(CLOCK_MONOTONIC, &session_end_time);
+    double total_session_time = (session_end_time.tv_sec - loop_start_time.tv_sec) +
+                               (session_end_time.tv_nsec - loop_start_time.tv_nsec) / 1e9;
+
+    fprintf(stderr, "PERF: SESSION SUMMARY: %.2f seconds, %d iterations (%.1f iter/sec)\n",
+             total_session_time, iteration_count, iteration_count / total_session_time);
 
     // Cleanup: restore terminal state
     clear_screen();

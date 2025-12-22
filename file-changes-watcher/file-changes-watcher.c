@@ -3,6 +3,11 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/inotify.h>
+#include <sys/select.h>
+#include <limits.h>
+#include <errno.h>
+#include <dirent.h>
 #include "../json-utils/json-utils.h"
 
 // Structure for file change tracking
@@ -19,6 +24,23 @@ typedef struct {
     size_t count;
     size_t capacity;
 } file_changes_t;
+
+// Repository tracking structure
+typedef struct {
+    char* path;           // Full path to repository
+    char* name;           // Repository name
+    char** tracked_files; // Array of tracked file paths (relative to repo root)
+    size_t tracked_count;
+    size_t tracked_capacity;
+    int watch_fd;         // Inotify watch descriptor
+} repository_t;
+
+// Collection of repositories
+typedef struct {
+    repository_t* repos;
+    size_t count;
+    size_t capacity;
+} repository_collection_t;
 
 // Initialize file changes collection
 file_changes_t* file_changes_init() {
@@ -45,6 +67,89 @@ void file_changes_cleanup(file_changes_t* changes) {
     }
     free(changes->files);
     free(changes);
+}
+
+// Initialize repository collection
+repository_collection_t* repository_collection_init() {
+    repository_collection_t* collection = calloc(1, sizeof(repository_collection_t));
+    if (!collection) return NULL;
+
+    collection->capacity = 16;
+    collection->repos = calloc(collection->capacity, sizeof(repository_t));
+    if (!collection->repos) {
+        free(collection);
+        return NULL;
+    }
+
+    return collection;
+}
+
+// Cleanup repository collection
+void repository_collection_cleanup(repository_collection_t* collection) {
+    if (!collection) return;
+
+    for (size_t i = 0; i < collection->count; i++) {
+        repository_t* repo = &collection->repos[i];
+        free(repo->path);
+        free(repo->name);
+        for (size_t j = 0; j < repo->tracked_count; j++) {
+            free(repo->tracked_files[j]);
+        }
+        free(repo->tracked_files);
+    }
+    free(collection->repos);
+    free(collection);
+}
+
+// Add repository to collection
+void add_repository(repository_collection_t* collection, const char* path, const char* name) {
+    if (!collection || !path || !name) return;
+
+    if (collection->count >= collection->capacity) {
+        collection->capacity *= 2;
+        repository_t* new_repos = realloc(collection->repos, collection->capacity * sizeof(repository_t));
+        if (!new_repos) return;
+        collection->repos = new_repos;
+    }
+
+    repository_t* repo = &collection->repos[collection->count];
+    memset(repo, 0, sizeof(repository_t));
+    repo->path = strdup(path);
+    repo->name = strdup(name);
+    repo->tracked_capacity = 100;
+    repo->tracked_files = calloc(repo->tracked_capacity, sizeof(char*));
+    repo->watch_fd = -1;
+
+    if (repo->path && repo->name && repo->tracked_files) {
+        collection->count++;
+    }
+}
+
+// Add tracked file to repository
+void add_tracked_file(repository_t* repo, const char* filepath) {
+    if (!repo || !filepath) return;
+
+    if (repo->tracked_count >= repo->tracked_capacity) {
+        repo->tracked_capacity *= 2;
+        char** new_files = realloc(repo->tracked_files, repo->tracked_capacity * sizeof(char*));
+        if (!new_files) return;
+        repo->tracked_files = new_files;
+    }
+
+    repo->tracked_files[repo->tracked_count] = strdup(filepath);
+    repo->tracked_count++;
+}
+
+// Check if file is tracked in repository
+int is_file_tracked(repository_t* repo, const char* filepath) {
+    if (!repo || !filepath) return 0;
+
+    for (size_t i = 0; i < repo->tracked_count; i++) {
+        if (strcmp(repo->tracked_files[i], filepath) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 // Add or update file change entry

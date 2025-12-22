@@ -80,6 +80,16 @@ typedef struct {
     int total_items;        // Total number of items in pane
 } pane_scroll_state_t;
 
+// Scroll animation state for smooth transitions
+typedef struct {
+    int is_animating;           // Whether animation is currently active
+    int start_position;         // Starting scroll position
+    int target_position;        // Target scroll position
+    struct timespec start_time; // When animation started
+    double duration_sec;        // Total animation duration
+    int pane_index;            // Which pane is animating (1, 2, or 3)
+} scroll_animation_t;
+
 // Animation state structure
 typedef struct {
     animation_type_t type;
@@ -103,6 +113,7 @@ typedef struct {
     pane_scroll_state_t pane1_scroll;
     pane_scroll_state_t pane2_scroll;
     // pane3_scroll removed - animations don't use scroll state
+    scroll_animation_t scroll_animation;  // Scroll animation state for smooth transitions
 } three_pane_data_t;
 
 // Orchestrator for three-pane-tui module
@@ -167,11 +178,17 @@ void render_scroll_left_right(animation_state_t* anim, int row, int start_col, i
 int is_animation_expired(animation_state_t* anim, time_t now);
 void cleanup_animation_state(animation_state_t* anim);
 
+// Scroll animation functions
+void start_scroll_animation(three_pane_tui_orchestrator_t* orch, int pane_index, int target_position);
+void update_scroll_animation(three_pane_tui_orchestrator_t* orch);
+int is_scroll_animation_active(three_pane_tui_orchestrator_t* orch);
+void cancel_scroll_animation(three_pane_tui_orchestrator_t* orch);
+
 // UI module functions
 void draw_pane(int start_col, int width, int height, const char* title, char** items, size_t item_count, int title_color, const style_config_t* styles, int pane_index, const pane_scroll_state_t* scroll_state, three_pane_tui_orchestrator_t* orch);
 void draw_tui_overlay(three_pane_tui_orchestrator_t* orch);
 int get_pane_at_position(int x, int y, int pane_width, int total_width, int pane_height);
-void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction);
+void update_pane_scroll(pane_scroll_state_t* scroll_state, int direction, int amount);
 void update_scroll_state(pane_scroll_state_t* scroll_state, int viewport_height, int total_items);
 
 // Main module functions
