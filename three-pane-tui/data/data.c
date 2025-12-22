@@ -170,6 +170,16 @@ int load_git_submodules_data(three_pane_tui_orchestrator_t* orch) {
         return -1;
     }
 
+    // Free old data before allocating new data
+    if (orch->data.pane1_items) {
+        for (size_t i = 0; i < orch->data.pane1_count; i++) {
+            free(orch->data.pane1_items[i]);
+        }
+        free(orch->data.pane1_items);
+        orch->data.pane1_items = NULL;
+        orch->data.pane1_count = 0;
+    }
+
     // Allocate space for repository data
     orch->data.pane1_count = repos->value.arr_val->count;
     orch->data.pane1_items = calloc(orch->data.pane1_count, sizeof(char*));

@@ -22,3 +22,7 @@ analyzer.log
 .DS_Store
 dirty-files-report.json
 git-submodules.report
+committed-not-pushed-report.json
+dirty-files-report.json
+file-changes-report.json
+benchmark-report.json

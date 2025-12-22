@@ -9,6 +9,8 @@
 #include <regex.h>
 #include <time.h>
 #include <stdarg.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 #include "json-utils/json-utils.h"
 
 // Configuration structure following infinite index pattern
@@ -48,6 +50,25 @@ typedef struct {
     config_t config;
     root_state_t state;
 } orchestrator_t;
+
+// Benchmarking structures for performance tracking
+typedef struct {
+    double wall_time_sec;      // Wall clock time (high precision)
+    double cpu_time_user_sec;  // User CPU time
+    double cpu_time_sys_sec;   // System CPU time
+    long memory_rss_kb;        // Resident set size (RSS) in KB
+    long memory_vms_kb;        // Virtual memory size in KB
+    long io_read_bytes;       // Bytes read from disk
+    long io_write_bytes;       // Bytes written to disk
+    long io_read_ops;          // Read operations
+    long io_write_ops;         // Write operations
+} benchmark_metrics_t;
+
+typedef struct {
+    char* component_name;
+    benchmark_metrics_t metrics;
+    int exit_code;
+} component_benchmark_t;
 
 // Custom environment variable expansion (handles ${VAR:-default} syntax)
 char* expandvars(const char* input) {
@@ -242,8 +263,245 @@ void orchestrator_cleanup(orchestrator_t* orch) {
     }
 }
 
-// Execute children following infinite index pattern
-int execute_children(orchestrator_t* orch) {
+// Get current process resource usage metrics
+benchmark_metrics_t get_current_metrics(void) {
+    benchmark_metrics_t metrics = {0};
+
+    // Get CPU time and I/O stats from getrusage
+    struct rusage ru;
+    if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
+        // CPU time (convert from microseconds to seconds)
+        metrics.cpu_time_user_sec = (double)ru.ru_utime.tv_sec + (double)ru.ru_utime.tv_usec / 1000000.0;
+        metrics.cpu_time_sys_sec = (double)ru.ru_stime.tv_sec + (double)ru.ru_stime.tv_usec / 1000000.0;
+
+        // I/O operations (512-byte blocks, convert to bytes)
+        metrics.io_read_bytes = ru.ru_inblock * 512;
+        metrics.io_write_bytes = ru.ru_oublock * 512;
+        metrics.io_read_ops = ru.ru_inblock;
+        metrics.io_write_ops = ru.ru_oublock;
+    }
+
+    // Get memory usage from /proc/self/status
+    FILE* proc_file = fopen("/proc/self/status", "r");
+    if (proc_file) {
+        char line[256];
+        while (fgets(line, sizeof(line), proc_file)) {
+            if (strncmp(line, "VmRSS:", 6) == 0) {
+                sscanf(line, "VmRSS: %ld kB", &metrics.memory_rss_kb);
+            } else if (strncmp(line, "VmSize:", 7) == 0) {
+                sscanf(line, "VmSize: %ld kB", &metrics.memory_vms_kb);
+            }
+        }
+        fclose(proc_file);
+    }
+
+    // Wall time will be set by caller using clock_gettime
+    metrics.wall_time_sec = 0.0;
+
+    return metrics;
+}
+
+// Calculate delta between two metric snapshots (after - before)
+benchmark_metrics_t calculate_delta(benchmark_metrics_t before, benchmark_metrics_t after) {
+    benchmark_metrics_t delta = {
+        .wall_time_sec = after.wall_time_sec - before.wall_time_sec,
+        .cpu_time_user_sec = after.cpu_time_user_sec - before.cpu_time_user_sec,
+        .cpu_time_sys_sec = after.cpu_time_sys_sec - before.cpu_time_sys_sec,
+        .memory_rss_kb = after.memory_rss_kb - before.memory_rss_kb,
+        .memory_vms_kb = after.memory_vms_kb - before.memory_vms_kb,
+        .io_read_bytes = after.io_read_bytes - before.io_read_bytes,
+        .io_write_bytes = after.io_write_bytes - before.io_write_bytes,
+        .io_read_ops = after.io_read_ops - before.io_read_ops,
+        .io_write_ops = after.io_write_ops - before.io_write_ops
+    };
+
+    // Ensure non-negative values (in case of counter resets)
+    if (delta.wall_time_sec < 0) delta.wall_time_sec = 0;
+    if (delta.cpu_time_user_sec < 0) delta.cpu_time_user_sec = 0;
+    if (delta.cpu_time_sys_sec < 0) delta.cpu_time_sys_sec = 0;
+    if (delta.memory_rss_kb < 0) delta.memory_rss_kb = 0;
+    if (delta.memory_vms_kb < 0) delta.memory_vms_kb = 0;
+    if (delta.io_read_bytes < 0) delta.io_read_bytes = 0;
+    if (delta.io_write_bytes < 0) delta.io_write_bytes = 0;
+    if (delta.io_read_ops < 0) delta.io_read_ops = 0;
+    if (delta.io_write_ops < 0) delta.io_write_ops = 0;
+
+    return delta;
+}
+
+// Helper function to compare components by wall time (for qsort)
+int compare_by_wall_time(const void* a, const void* b) {
+    const component_benchmark_t* ca = (const component_benchmark_t*)a;
+    const component_benchmark_t* cb = (const component_benchmark_t*)b;
+    if (ca->metrics.wall_time_sec > cb->metrics.wall_time_sec) return -1;
+    if (ca->metrics.wall_time_sec < cb->metrics.wall_time_sec) return 1;
+    return 0;
+}
+
+// Helper function to compare components by CPU time (for qsort)
+int compare_by_cpu_time(const void* a, const void* b) {
+    const component_benchmark_t* ca = (const component_benchmark_t*)a;
+    const component_benchmark_t* cb = (const component_benchmark_t*)b;
+    double cpu_a = ca->metrics.cpu_time_user_sec + ca->metrics.cpu_time_sys_sec;
+    double cpu_b = cb->metrics.cpu_time_user_sec + cb->metrics.cpu_time_sys_sec;
+    if (cpu_a > cpu_b) return -1;
+    if (cpu_a < cpu_b) return 1;
+    return 0;
+}
+
+// Helper function to compare components by memory usage (for qsort)
+int compare_by_memory(const void* a, const void* b) {
+    const component_benchmark_t* ca = (const component_benchmark_t*)a;
+    const component_benchmark_t* cb = (const component_benchmark_t*)b;
+    if (ca->metrics.memory_rss_kb > cb->metrics.memory_rss_kb) return -1;
+    if (ca->metrics.memory_rss_kb < cb->metrics.memory_rss_kb) return 1;
+    return 0;
+}
+
+// Helper function to compare components by I/O operations (for qsort)
+int compare_by_io(const void* a, const void* b) {
+    const component_benchmark_t* ca = (const component_benchmark_t*)a;
+    const component_benchmark_t* cb = (const component_benchmark_t*)b;
+    long io_a = ca->metrics.io_read_ops + ca->metrics.io_write_ops;
+    long io_b = cb->metrics.io_read_ops + cb->metrics.io_write_ops;
+    if (io_a > io_b) return -1;
+    if (io_a < io_b) return 1;
+    return 0;
+}
+
+// Create a sorted copy of benchmarks for a specific metric
+component_benchmark_t* get_top_components(component_benchmark_t* benchmarks, size_t count, size_t* top_count,
+                                        int (*compare_func)(const void*, const void*)) {
+    if (count == 0) {
+        *top_count = 0;
+        return NULL;
+    }
+
+    // Create a copy of the benchmarks array
+    component_benchmark_t* sorted = malloc(count * sizeof(component_benchmark_t));
+    if (!sorted) return NULL;
+
+    for (size_t i = 0; i < count; i++) {
+        sorted[i] = benchmarks[i];
+        // Deep copy the component name
+        sorted[i].component_name = strdup(benchmarks[i].component_name);
+    }
+
+    // Sort by the specified metric
+    qsort(sorted, count, sizeof(component_benchmark_t), compare_func);
+
+    // Return top 3 (or all if fewer than 3)
+    *top_count = (count < 3) ? count : 3;
+    return sorted;
+}
+
+// Helper function to write component array to JSON file
+void write_component_array_json(FILE* fp, const char* section_name, component_benchmark_t* components, size_t comp_count, int add_comma) {
+    fprintf(fp, "  \"%s\": [\n", section_name);
+    for (size_t i = 0; i < comp_count; i++) {
+        const component_benchmark_t* comp = &components[i];
+        fprintf(fp, "    {\n");
+        fprintf(fp, "      \"name\": \"%s\",\n", comp->component_name);
+        fprintf(fp, "      \"wall_time_sec\": %.6f,\n", comp->metrics.wall_time_sec);
+        fprintf(fp, "      \"cpu_time_user_sec\": %.6f,\n", comp->metrics.cpu_time_user_sec);
+        fprintf(fp, "      \"cpu_time_sys_sec\": %.6f,\n", comp->metrics.cpu_time_sys_sec);
+        fprintf(fp, "      \"memory_rss_kb\": %ld,\n", comp->metrics.memory_rss_kb);
+        fprintf(fp, "      \"memory_vms_kb\": %ld,\n", comp->metrics.memory_vms_kb);
+        fprintf(fp, "      \"io_read_bytes\": %ld,\n", comp->metrics.io_read_bytes);
+        fprintf(fp, "      \"io_write_bytes\": %ld,\n", comp->metrics.io_write_bytes);
+        fprintf(fp, "      \"io_read_ops\": %ld,\n", comp->metrics.io_read_ops);
+        fprintf(fp, "      \"io_write_ops\": %ld,\n", comp->metrics.io_write_ops);
+        fprintf(fp, "      \"exit_code\": %d\n", comp->exit_code);
+        fprintf(fp, "    }%s\n", (i < comp_count - 1) ? "," : "");
+    }
+    fprintf(fp, "  ]%s\n", add_comma ? "," : "");
+}
+
+// Write benchmark report to JSON file
+void write_benchmark_report(orchestrator_t* orch, component_benchmark_t* benchmarks, size_t count) {
+    if (!benchmarks || count == 0) return;
+
+    FILE* fp = fopen("benchmark-report.json", "w");
+    if (!fp) {
+        fprintf(stderr, "Warning: Could not create benchmark report file\n");
+        return;
+    }
+
+    // Get top components for each category
+    size_t slowest_count, cpu_count, memory_count, io_count;
+    component_benchmark_t* slowest = get_top_components(benchmarks, count, &slowest_count, compare_by_wall_time);
+    component_benchmark_t* most_cpu = get_top_components(benchmarks, count, &cpu_count, compare_by_cpu_time);
+    component_benchmark_t* most_memory = get_top_components(benchmarks, count, &memory_count, compare_by_memory);
+    component_benchmark_t* most_io = get_top_components(benchmarks, count, &io_count, compare_by_io);
+
+    // Calculate session duration
+    double session_duration = difftime(orch->state.session_end, orch->state.session_start);
+
+    // Write JSON header
+    fprintf(fp, "{\n");
+    fprintf(fp, "  \"session_info\": {\n");
+    fprintf(fp, "    \"start_time\": \"%ld\",\n", (long)orch->state.session_start);
+    fprintf(fp, "    \"end_time\": \"%ld\",\n", (long)orch->state.session_end);
+    fprintf(fp, "    \"total_duration_sec\": %.3f,\n", session_duration);
+    fprintf(fp, "    \"components_executed\": %zu\n", count);
+    fprintf(fp, "  },\n");
+
+    // Write slowest components
+    write_component_array_json(fp, "slowest_components", slowest, slowest_count, 1);
+
+    // Write most CPU intensive
+    write_component_array_json(fp, "most_cpu_intensive", most_cpu, cpu_count, 1);
+
+    // Write most memory intensive
+    write_component_array_json(fp, "most_memory_intensive", most_memory, memory_count, 1);
+
+    // Write most I/O intensive
+    write_component_array_json(fp, "most_io_intensive", most_io, io_count, 1);
+
+    // Write all components
+    fprintf(fp, "  \"all_components\": [\n");
+    for (size_t i = 0; i < count; i++) {
+        const component_benchmark_t* comp = &benchmarks[i];
+        fprintf(fp, "    {\n");
+        fprintf(fp, "      \"name\": \"%s\",\n", comp->component_name);
+        fprintf(fp, "      \"wall_time_sec\": %.6f,\n", comp->metrics.wall_time_sec);
+        fprintf(fp, "      \"cpu_time_user_sec\": %.6f,\n", comp->metrics.cpu_time_user_sec);
+        fprintf(fp, "      \"cpu_time_sys_sec\": %.6f,\n", comp->metrics.cpu_time_sys_sec);
+        fprintf(fp, "      \"memory_rss_kb\": %ld,\n", comp->metrics.memory_rss_kb);
+        fprintf(fp, "      \"memory_vms_kb\": %ld,\n", comp->metrics.memory_vms_kb);
+        fprintf(fp, "      \"io_read_bytes\": %ld,\n", comp->metrics.io_read_bytes);
+        fprintf(fp, "      \"io_write_bytes\": %ld,\n", comp->metrics.io_write_bytes);
+        fprintf(fp, "      \"io_read_ops\": %ld,\n", comp->metrics.io_read_ops);
+        fprintf(fp, "      \"io_write_ops\": %ld,\n", comp->metrics.io_write_ops);
+        fprintf(fp, "      \"exit_code\": %d\n", comp->exit_code);
+        fprintf(fp, "    }%s\n", (i < count - 1) ? "," : "");
+    }
+    fprintf(fp, "  ]\n");
+    fprintf(fp, "}\n");
+
+    fclose(fp);
+
+    // Cleanup sorted arrays
+    if (slowest) {
+        for (size_t i = 0; i < slowest_count; i++) free(slowest[i].component_name);
+        free(slowest);
+    }
+    if (most_cpu) {
+        for (size_t i = 0; i < cpu_count; i++) free(most_cpu[i].component_name);
+        free(most_cpu);
+    }
+    if (most_memory) {
+        for (size_t i = 0; i < memory_count; i++) free(most_memory[i].component_name);
+        free(most_memory);
+    }
+    if (most_io) {
+        for (size_t i = 0; i < io_count; i++) free(most_io[i].component_name);
+        free(most_io);
+    }
+}
+
+// Execute children following infinite index pattern with benchmarking
+int execute_children(orchestrator_t* orch, component_benchmark_t** benchmarks_out, size_t* benchmark_count_out) {
     log_state(orch, "Beginning child execution phase");
 
     printf("repoWatch orchestrator initialized\n");
@@ -303,6 +561,16 @@ int execute_children(orchestrator_t* orch) {
 
     log_state(orch, "Found %zu children to execute: %s", num_children, line);
 
+    // Initialize benchmark array
+    component_benchmark_t* benchmarks = calloc(num_children, sizeof(component_benchmark_t));
+    if (!benchmarks) {
+        fprintf(stderr, "Error: Could not allocate benchmark array\n");
+        for (size_t i = 0; i < num_children; i++) free(children[i]);
+        free(children);
+        return 1;
+    }
+    size_t benchmark_count = 0;
+
     for (size_t i = 0; i < num_children; i++) {
         const char* child_name = children[i];
         char child_cmd[1024];
@@ -319,15 +587,41 @@ int execute_children(orchestrator_t* orch) {
             log_state(orch, "Executing child: %s (pattern 1: %s)", child_name, child_cmd);
             printf("Executing child: %s\n", child_name);
 
+            // Collect timing for both high-precision and legacy compatibility
+            struct timespec start_wall_time;
+            clock_gettime(CLOCK_MONOTONIC, &start_wall_time);
             time_t start_time = time(NULL);
+            benchmark_metrics_t before_metrics = get_current_metrics();
+
             int result = system(child_cmd);
+
+            // Collect metrics after execution
+            struct timespec end_wall_time;
+            clock_gettime(CLOCK_MONOTONIC, &end_wall_time);
             time_t end_time = time(NULL);
+            benchmark_metrics_t after_metrics = get_current_metrics();
+
+            // Calculate wall time delta
+            double wall_time_delta = (end_wall_time.tv_sec - start_wall_time.tv_sec) +
+                                   (end_wall_time.tv_nsec - start_wall_time.tv_nsec) / 1e9;
+
+            // Calculate metric deltas
+            benchmark_metrics_t delta = calculate_delta(before_metrics, after_metrics);
+            delta.wall_time_sec = wall_time_delta;
+
+            // Store benchmark data
+            if (benchmark_count < num_children) {
+                benchmarks[benchmark_count].component_name = strdup(child_name);
+                benchmarks[benchmark_count].metrics = delta;
+                benchmarks[benchmark_count].exit_code = result;
+                benchmark_count++;
+            }
 
             if (result != 0) {
-                log_state(orch, "WARNING: Child '%s' exited with code %d (took %ld seconds)", child_name, result, end_time - start_time);
+                log_state(orch, "WARNING: Child '%s' exited with code %d (took %.3f seconds)", child_name, result, wall_time_delta);
                 fprintf(stderr, "Warning: Child '%s' exited with code %d\n", child_name, result);
             } else {
-                log_state(orch, "SUCCESS: Child '%s' completed successfully (took %ld seconds)", child_name, end_time - start_time);
+                log_state(orch, "SUCCESS: Child '%s' completed successfully (took %.3f seconds)", child_name, wall_time_delta);
             }
 
             // Read child's report if it exists
@@ -360,15 +654,41 @@ int execute_children(orchestrator_t* orch) {
             log_state(orch, "Executing child: %s (pattern 2: %s)", child_name, child_cmd);
             printf("Executing child: %s (index)\n", child_name);
 
+            // Collect timing for both high-precision and legacy compatibility
+            struct timespec start_wall_time;
+            clock_gettime(CLOCK_MONOTONIC, &start_wall_time);
             time_t start_time = time(NULL);
+            benchmark_metrics_t before_metrics = get_current_metrics();
+
             int result = system(child_cmd);
+
+            // Collect metrics after execution
+            struct timespec end_wall_time;
+            clock_gettime(CLOCK_MONOTONIC, &end_wall_time);
             time_t end_time = time(NULL);
+            benchmark_metrics_t after_metrics = get_current_metrics();
+
+            // Calculate wall time delta
+            double wall_time_delta = (end_wall_time.tv_sec - start_wall_time.tv_sec) +
+                                   (end_wall_time.tv_nsec - start_wall_time.tv_nsec) / 1e9;
+
+            // Calculate metric deltas
+            benchmark_metrics_t delta = calculate_delta(before_metrics, after_metrics);
+            delta.wall_time_sec = wall_time_delta;
+
+            // Store benchmark data
+            if (benchmark_count < num_children) {
+                benchmarks[benchmark_count].component_name = strdup(child_name);
+                benchmarks[benchmark_count].metrics = delta;
+                benchmarks[benchmark_count].exit_code = result;
+                benchmark_count++;
+            }
 
             if (result != 0) {
-                log_state(orch, "WARNING: Child '%s' exited with code %d (took %ld seconds)", child_name, result, end_time - start_time);
+                log_state(orch, "WARNING: Child '%s' exited with code %d (took %.3f seconds)", child_name, result, wall_time_delta);
                 fprintf(stderr, "Warning: Child '%s' exited with code %d\n", child_name, result);
             } else {
-                log_state(orch, "SUCCESS: Child '%s' completed successfully (took %ld seconds)", child_name, end_time - start_time);
+                log_state(orch, "SUCCESS: Child '%s' completed successfully (took %.3f seconds)", child_name, wall_time_delta);
             }
 
             // Read child's report if it exists
@@ -404,6 +724,10 @@ int execute_children(orchestrator_t* orch) {
         free(children[i]);
     }
     free(children);
+
+    // Set output parameters
+    *benchmarks_out = benchmarks;
+    *benchmark_count_out = benchmark_count;
 
     return 0;
 }
@@ -510,13 +834,27 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Execute children (placeholder for now)
-    int result = execute_children(orch);
+    // Execute children with benchmarking
+    component_benchmark_t* benchmarks = NULL;
+    size_t benchmark_count = 0;
+    int result = execute_children(orch, &benchmarks, &benchmark_count);
 
     // Set session end time
     orch->state.session_end = time(NULL);
 
     log_state(orch, "Child execution phase completed with result: %d", result);
+
+    // Generate benchmark report if we have data
+    if (benchmarks && benchmark_count > 0) {
+        write_benchmark_report(orch, benchmarks, benchmark_count);
+        log_state(orch, "Generated benchmark report with %zu component measurements", benchmark_count);
+
+        // Cleanup benchmark data
+        for (size_t i = 0; i < benchmark_count; i++) {
+            free(benchmarks[i].component_name);
+        }
+        free(benchmarks);
+    }
 
     // Display child reports before main loop - DISABLED by user request
     // display_child_reports(orch);

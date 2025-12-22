@@ -14,13 +14,16 @@ void handle_sigwinch(int sig) {
 
 // Emergency cleanup handler for crash signals
 void emergency_cleanup(int sig) {
-    // Restore terminal state in case of crash
-    disable_mouse_reporting();
-    show_cursor();
-    clear_screen();
-    move_cursor(1, 1);
-    printf("Program terminated unexpectedly (signal %d)\n", sig);
-    fflush(stdout);
+    // Use write() instead of printf to avoid potential stdio issues during crash
+    char buf[128];
+    int len = snprintf(buf, sizeof(buf), "Program terminated unexpectedly (signal %d at %s:%d)\n", sig, __FILE__, __LINE__);
+    if (len > 0) {
+        write(STDERR_FILENO, buf, len);
+    }
+
+    // Try to restore terminal state - use direct writes to avoid more crashes
+    const char* reset_seq = "\033[?1003l\033[?1002l\033[?1000l\033[?1006l\033[?25h\033[2J\033[H";
+    write(STDOUT_FILENO, reset_seq, strlen(reset_seq));
 
     // Exit with the signal number
     _exit(128 + sig);
@@ -230,10 +233,11 @@ int get_string_display_width(const char* str) {
 
 // Smart truncation: for paths, show first folder + ... + filename, for others use right-priority
 char* truncate_string_right_priority(const char* str, int max_width) {
-    if (!str) return NULL;
+    if (!str || max_width < 0) return NULL;
 
     int ellipses_width = 3; // Width of "..."
     int total_width = get_string_display_width(str);
+    if (total_width < 0) return NULL; // Safety check
 
     // If it fits, return copy as-is
     if (total_width <= max_width) {
@@ -251,6 +255,8 @@ char* truncate_string_right_priority(const char* str, int max_width) {
 
             // Build path components array
             char* path_copy = strdup(str);
+            if (!path_copy) return NULL; // Memory allocation failed
+
             char* components[100]; // Max 100 components should be plenty
             int component_count = 0;
 

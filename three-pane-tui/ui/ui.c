@@ -227,8 +227,12 @@ void draw_pane(int start_col, int width, int height, const char* title, char** i
 
             // Use glyph-aware right-priority truncation for all content
             char* display_text = truncate_string_right_priority(text, max_text_width);
-            printf("%s", display_text);
-            free(display_text);
+            if (display_text) {
+                printf("%s", display_text);
+                free(display_text);
+            } else {
+                printf("(null)");
+            }
             reset_colors();
         }
 

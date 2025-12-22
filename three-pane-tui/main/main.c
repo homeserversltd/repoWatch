@@ -146,6 +146,13 @@ void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
 
 // Execute the three-pane-tui module
 int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
+    // TEMPORARILY DISABLE TTY CHECK TO SEE ACTUAL CRASH
+    // Check if we have a TTY - exit early if not (prevents blocking on terminal operations)
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+        fprintf(stderr, "Error: three-pane-tui requires a TTY for interactive operation\n");
+        return 2; // Exit code 2 to indicate TTY requirement
+    }
+
     struct timespec last_redraw;
     struct timespec last_button_click;
     struct timespec last_git_check;
@@ -201,24 +208,54 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
     int running = 1;
     int width, height;
     get_terminal_size(&width, &height);
+
+    // Minimum size check to prevent crashes
+    if (width < 20 || height < 10) {
+        printf("Terminal too small. Minimum size: 20x10\n");
+        return 1;
+    }
+
     int pane_width = width / 3;
+    // Ensure minimum pane width to prevent negative values
+    if (pane_width < 1) pane_width = 1;
+
     int pane_height = height - 5; // Available rows for content
 
     // Update initial scroll states (pane3 uses animations, not scroll state)
     update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
     update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
 
+    int iteration_count = 0;
     while (running) {
+        iteration_count++;
+
+        // Debug output for first few iterations
+        if (iteration_count <= 3) {
+            fprintf(stderr, "DEBUG: Main loop iteration %d starting\n", iteration_count);
+        }
+
+        // Periodic debug output (every 1000 iterations)
+        if (iteration_count % 1000 == 0) {
+            fprintf(stderr, "DEBUG: Main loop iteration %d, animations: %zu, width: %d, height: %d\n",
+                   iteration_count, orch->data.active_animation_count, width, height);
+        }
+
         // Check for redraw request from signal handler
         if (redraw_needed) {
             redraw_needed = 0;
             // Recalculate dimensions on resize
             get_terminal_size(&width, &height);
-            pane_width = width / 3;
-            pane_height = height - 5;
-            // Update scroll states for new dimensions (pane3 uses animations, not scroll state)
-            update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
-            update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+
+            // Minimum size check
+            if (width >= 20 && height >= 10) {
+                pane_width = width / 3;
+                if (pane_width < 1) pane_width = 1;
+                pane_height = height - 5;
+                // Update scroll states for new dimensions (pane3 uses animations, not scroll state)
+                update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+                update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+            }
+
             draw_tui_overlay(orch);
         }
 
@@ -248,11 +285,14 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             if (data_changed) {
                 // Update scroll states after data refresh
                 get_terminal_size(&width, &height);
-                pane_width = width / 3;
-                pane_height = height - 5;
-                update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
-                update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
-                // pane3 uses animations, not scroll state
+                if (width >= 20 && height >= 10) {
+                    pane_width = width / 3;
+                    if (pane_width < 1) pane_width = 1;
+                    pane_height = height - 5;
+                    update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+                    update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+                    // pane3 uses animations, not scroll state
+                }
                 draw_tui_overlay(orch);
             }
 
@@ -263,17 +303,17 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             if (active_files) {
                 time_t now = time(NULL);
 
-                // Remove expired animations
+                // Remove expired animations (safely handle rapid updates)
                 size_t write_idx = 0;
-                for (size_t i = 0; i < orch->data.active_animation_count; i++) {
+                for (size_t i = 0; i < orch->data.active_animation_count && i < 1000; i++) { // Safety limit
                     animation_state_t* anim = orch->data.active_animations[i];
-                    if (!is_animation_expired(anim, now)) {
+                    if (anim && !is_animation_expired(anim, now)) {
                         // Keep this animation
                         if (write_idx != i) {
                             orch->data.active_animations[write_idx] = orch->data.active_animations[i];
                         }
                         write_idx++;
-                    } else {
+                    } else if (anim) {
                         // Remove expired animation
                         cleanup_animation_state(anim);
                     }
@@ -297,17 +337,18 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                     }
 
                     // If not found, create new animation (skip files that were dirty at startup)
-                    if (!found && !was_startup_file(orch, file_info->path)) {
+                    if (!found && !was_startup_file(orch, file_info->path) && orch->data.active_animation_count < 100) { // Safety limit
                         animation_state_t* new_anim = create_animation_state(file_info->path, ANIM_SCROLL_LEFT_RIGHT, pane_width);
                         if (new_anim) {
                             // Set timing for runtime animations
                             new_anim->start_time = file_info->last_updated;
                             new_anim->end_time = file_info->last_updated + 30;
 
-                            // Add to animations array
-                            orch->data.active_animations = realloc(orch->data.active_animations,
+                            // Add to animations array (safely)
+                            animation_state_t** new_array = realloc(orch->data.active_animations,
                                                                  (orch->data.active_animation_count + 1) * sizeof(animation_state_t*));
-                            if (orch->data.active_animations) {
+                            if (new_array) {
+                                orch->data.active_animations = new_array;
                                 orch->data.active_animations[orch->data.active_animation_count] = new_anim;
                                 orch->data.active_animation_count++;
                             } else {
@@ -333,18 +374,29 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
 
         // Try to read mouse events first (they start with \033)
         int button, x, y, scroll_delta;
+        if (iteration_count <= 3) {
+            fprintf(stderr, "DEBUG: About to call read_mouse_event\n");
+        }
         int mouse_result = read_mouse_event(&button, &x, &y, &scroll_delta);
+        if (iteration_count <= 3) {
+            fprintf(stderr, "DEBUG: read_mouse_event returned %d\n", mouse_result);
+        }
 
-        if (mouse_result == 0) {
+        if (mouse_result == 0 && width >= 20 && height >= 10) { // Only process mouse events if terminal is valid size
             // Only handle button presses, not releases (button == -1 indicates release)
             if (button == -1) {
                 // Button release - ignore to prevent double-clicking
                 // Do nothing
             } else {
                 // Button press - handle it
-                // Convert to 1-based coordinates
+                // Convert to 1-based coordinates and validate bounds
                 int click_x = x - 1;
                 int click_y = y - 1;
+
+                // Bounds check to prevent crashes
+                if (click_x < 0 || click_x >= width || click_y < 0 || click_y >= height) {
+                    continue; // Invalid coordinates, skip this event
+                }
 
                 // Check if click is in footer (last row)
                 if (click_y == height - 1) {
@@ -367,10 +419,13 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
                                 load_committed_not_pushed_data(orch, orch->current_view) == 0) {
                                 // Update scroll states to reflect new data count after view change (pane3 uses animations)
                                 get_terminal_size(&width, &height);
-                                pane_width = width / 3;
-                                pane_height = height - 5;
-                                update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
-                                update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+                                if (width >= 20 && height >= 10) {
+                                    pane_width = width / 3;
+                                    if (pane_width < 1) pane_width = 1;
+                                    pane_height = height - 5;
+                                    update_scroll_state(&orch->data.pane1_scroll, pane_height, orch->data.pane1_count);
+                                    update_scroll_state(&orch->data.pane2_scroll, pane_height, orch->data.pane2_count);
+                                }
                                 draw_tui_overlay(orch);
                             }
                         }
