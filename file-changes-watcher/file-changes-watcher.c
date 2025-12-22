@@ -4,157 +4,460 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/inotify.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <signal.h>
 #include <regex.h>
 #include "../json-utils/json-utils.h"
 
-// Structure for file change tracking
+// Structure for mapping watch descriptors to directory information
 typedef struct {
-    char* path;
-    char* repository;
-    time_t first_detected;
-    time_t last_updated;
-    time_t mtime;  // File modification time
-} file_change_t;
+    int wd;                    // Watch descriptor
+    char* dir_path;            // Full path to directory
+    char* repository;          // Repository name
+} watch_entry_t;
 
-// Collection of file changes
+// Collection of watch entries
 typedef struct {
-    file_change_t* files;
+    watch_entry_t* entries;
     size_t count;
     size_t capacity;
-} file_changes_t;
+    int inotify_fd;            // Inotify file descriptor
+} watch_collection_t;
 
-// Initialize file changes collection
-file_changes_t* file_changes_init() {
-    file_changes_t* changes = calloc(1, sizeof(file_changes_t));
-    if (!changes) return NULL;
+// Global variables for daemon cleanup
+static watch_collection_t* g_watches = NULL;
+static volatile sig_atomic_t g_running = 1;
 
-    changes->capacity = 100;
-    changes->files = calloc(changes->capacity, sizeof(file_change_t));
-    if (!changes->files) {
-        free(changes);
+// Signal handler for clean shutdown
+void daemon_signal_handler(int sig) {
+    g_running = 0;
+}
+
+// Initialize watch collection
+watch_collection_t* watch_collection_init() {
+    watch_collection_t* watches = calloc(1, sizeof(watch_collection_t));
+    if (!watches) return NULL;
+
+    watches->capacity = 100;
+    watches->entries = calloc(watches->capacity, sizeof(watch_entry_t));
+    if (!watches->entries) {
+        free(watches);
         return NULL;
     }
 
-    return changes;
-}
-
-// Cleanup file changes collection
-void file_changes_cleanup(file_changes_t* changes) {
-    if (!changes) return;
-
-    for (size_t i = 0; i < changes->count; i++) {
-        free(changes->files[i].path);
-        free(changes->files[i].repository);
+    // Initialize inotify
+    watches->inotify_fd = inotify_init1(IN_NONBLOCK);
+    if (watches->inotify_fd < 0) {
+        fprintf(stderr, "Failed to initialize inotify: %s\n", strerror(errno));
+        free(watches->entries);
+        free(watches);
+        return NULL;
     }
-    free(changes->files);
-    free(changes);
+
+    return watches;
 }
 
-// Add or update file change entry
-void add_file_change(file_changes_t* changes, const char* path, const char* repository) {
-    if (!changes || !path || !repository) return;
+// Cleanup watch collection
+void watch_collection_cleanup(watch_collection_t* watches) {
+    if (!watches) return;
+
+    // Remove all watches and free entries
+    for (size_t i = 0; i < watches->count; i++) {
+        watch_entry_t* entry = &watches->entries[i];
+        if (entry->wd >= 0) {
+            inotify_rm_watch(watches->inotify_fd, entry->wd);
+        }
+        free(entry->dir_path);
+        free(entry->repository);
+    }
+
+    free(watches->entries);
+    close(watches->inotify_fd);
+    free(watches);
+}
+
+// Add watch for a directory
+int add_directory_watch(watch_collection_t* watches, const char* dir_path, const char* repository) {
+    if (!watches || !dir_path || !repository) return -1;
+
+    // Check if directory already exists
+    for (size_t i = 0; i < watches->count; i++) {
+        if (strcmp(watches->entries[i].dir_path, dir_path) == 0) {
+            // Already watching this directory
+            return 0;
+        }
+    }
+
+    // Expand capacity if needed
+    if (watches->count >= watches->capacity) {
+        watches->capacity *= 2;
+        watch_entry_t* new_entries = realloc(watches->entries, watches->capacity * sizeof(watch_entry_t));
+        if (!new_entries) return -1;
+        watches->entries = new_entries;
+    }
+
+    // Add watch for directory - watch for file creation, deletion, and modification
+    // Use IN_RECURSIVE if available (Linux 5.9+) to watch subdirectories
+    uint32_t mask = IN_MODIFY | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO;
+    #ifdef IN_RECURSIVE
+    mask |= IN_RECURSIVE;
+    #endif
+    int wd = inotify_add_watch(watches->inotify_fd, dir_path, mask);
+    if (wd < 0) {
+        // Skip directories we can't watch (permission issues, etc.)
+        fprintf(stderr, "Failed to watch directory %s: %s\n", dir_path, strerror(errno));
+        return 0;
+    }
+
+    watch_entry_t* entry = &watches->entries[watches->count];
+    entry->wd = wd;
+    entry->dir_path = strdup(dir_path);
+    entry->repository = strdup(repository);
+
+    if (!entry->dir_path || !entry->repository) {
+        // Cleanup on allocation failure
+        free(entry->dir_path);
+        free(entry->repository);
+        inotify_rm_watch(watches->inotify_fd, wd);
+        return -1;
+    }
+
+    watches->count++;
+    return 0;
+}
+
+// Write a change notification to the stream file
+void write_change_notification(const char* stream_file, const char* file_path, const char* repository, time_t timestamp) {
+    FILE* fp = fopen(stream_file, "a");
+    if (!fp) {
+        // Silent failure in daemon mode - don't spam logs
+        return;
+    }
+
+    // Write JSON line: {"path":"file.c","repository":"root","timestamp":1234567890}
+    fprintf(fp, "{\"path\":\"%s\",\"repository\":\"%s\",\"timestamp\":%ld}\n",
+            file_path, repository, (long)timestamp);
+
+    fclose(fp);
+}
+
+// Clean up expired entries from report file (older than 30 seconds)
+void cleanup_expired_report_entries(const char* report_file) {
+    json_value_t* report = json_parse_file(report_file);
+    if (!report || report->type != JSON_OBJECT) {
+        return; // No report to clean
+    }
+
+    json_value_t* files_array = get_nested_value(report, "files");
+    if (!files_array || files_array->type != JSON_ARRAY) {
+        json_free(report);
+        return;
+    }
 
     time_t now = time(NULL);
-    char full_path[2048];
-
-    // Create full path: repository/path
-    snprintf(full_path, sizeof(full_path), "%s/%s", repository, path);
-
-    // Check if file already exists
-    for (size_t i = 0; i < changes->count; i++) {
-        if (strcmp(changes->files[i].path, full_path) == 0) {
-            // Update last_updated timestamp (resets the timer)
-            changes->files[i].last_updated = now;
-            return;
-        }
-    }
-
-    // File doesn't exist, add it
-    if (changes->count >= changes->capacity) {
-        changes->capacity *= 2;
-        file_change_t* new_files = realloc(changes->files, changes->capacity * sizeof(file_change_t));
-        if (!new_files) return;
-        changes->files = new_files;
-    }
-
-    file_change_t* change = &changes->files[changes->count];
-    change->path = strdup(full_path);
-    change->repository = strdup(repository);
-    change->first_detected = now;
-    change->last_updated = now;
-    changes->count++;
-}
-
-// Remove file changes that are no longer in dirty-files-report.json
-void remove_stale_changes(file_changes_t* changes, json_value_t* dirty_report) {
-    if (!changes || !dirty_report) return;
-
-    // Create a set of all current dirty file paths
-    char** current_paths = NULL;
-    size_t current_count = 0;
-
-    json_value_t* repos = get_nested_value(dirty_report, "repositories");
-    if (repos && repos->type == JSON_ARRAY) {
-        for (size_t i = 0; i < repos->value.arr_val->count; i++) {
-            json_value_t* repo = repos->value.arr_val->items[i];
-            if (repo->type != JSON_OBJECT) continue;
-
-            json_value_t* repo_name = get_nested_value(repo, "name");
-            json_value_t* files = get_nested_value(repo, "dirty_files");
-
-            if (!repo_name || repo_name->type != JSON_STRING) continue;
-            if (!files || files->type != JSON_ARRAY) continue;
-
-            for (size_t j = 0; j < files->value.arr_val->count; j++) {
-                json_value_t* file = files->value.arr_val->items[j];
-                if (file->type != JSON_STRING) continue;
-
-                char full_path[2048];
-                snprintf(full_path, sizeof(full_path), "%s/%s",
-                        repo_name->value.str_val, file->value.str_val);
-
-                current_paths = realloc(current_paths, (current_count + 1) * sizeof(char*));
-                current_paths[current_count] = strdup(full_path);
-                current_count++;
+    json_value_t* filtered_array = json_create_array();
+    if (filtered_array) {
+        for (size_t i = 0; i < files_array->value.arr_val->count; i++) {
+            json_value_t* file_obj = files_array->value.arr_val->items[i];
+            if (file_obj->type == JSON_OBJECT) {
+                json_value_t* path_val = get_nested_value(file_obj, "path");
+                json_value_t* repo_val = get_nested_value(file_obj, "repository");
+                json_value_t* first_detected_val = get_nested_value(file_obj, "first_detected");
+                json_value_t* last_updated_val = get_nested_value(file_obj, "last_updated");
+                
+                if (last_updated_val && last_updated_val->type == JSON_NUMBER) {
+                    time_t last_updated = (time_t)last_updated_val->value.num_val;
+                    // Keep entries updated within the last 30 seconds
+                    if (now - last_updated < 30) {
+                        // Create new object (don't reuse to avoid double-free)
+                        json_value_t* new_file_obj = json_create_object();
+                        if (path_val && path_val->type == JSON_STRING) {
+                            json_object_set(new_file_obj, "path", json_create_string(path_val->value.str_val));
+                        }
+                        if (repo_val && repo_val->type == JSON_STRING) {
+                            json_object_set(new_file_obj, "repository", json_create_string(repo_val->value.str_val));
+                        }
+                        if (first_detected_val && first_detected_val->type == JSON_NUMBER) {
+                            json_object_set(new_file_obj, "first_detected", json_create_number(first_detected_val->value.num_val));
+                        }
+                        json_object_set(new_file_obj, "last_updated", json_create_number((double)last_updated));
+                        json_array_add(filtered_array, new_file_obj);
+                    }
+                }
             }
         }
+        // Only write if the filtered array is different (has different count)
+        json_value_t* old_files_array = get_nested_value(report, "files");
+        size_t old_count = (old_files_array && old_files_array->type == JSON_ARRAY) ? old_files_array->value.arr_val->count : 0;
+        size_t new_count = filtered_array->value.arr_val->count;
+        
+        if (old_count != new_count) {
+            // Count changed, need to update
+            json_object_set(report, "files", filtered_array);
+            json_object_set(report, "timestamp", json_create_number((double)now));
+            json_write_file(report_file, report);
+        } else {
+            // No change, don't write (avoid unnecessary file updates)
+            json_free(filtered_array);
+        }
     }
 
-    // Remove changes that are no longer in the dirty report
-    size_t write_idx = 0;
-    for (size_t i = 0; i < changes->count; i++) {
-        file_change_t* change = &changes->files[i];
-        int still_exists = 0;
+    json_free(report);
+}
 
-        for (size_t j = 0; j < current_count; j++) {
-            if (strcmp(change->path, current_paths[j]) == 0) {
-                still_exists = 1;
+// Update the file-changes-report.json with a file change
+void update_file_changes_report(const char* report_file, const char* file_path, const char* repository, time_t timestamp) {
+    // Build the full path for the report (repository/path/to/file)
+    char report_path[4096];
+    if (strcmp(repository, "root") == 0) {
+        snprintf(report_path, sizeof(report_path), "root/%s", file_path);
+    } else {
+        snprintf(report_path, sizeof(report_path), "%s/%s", repository, file_path);
+    }
+
+    // Read existing report
+    json_value_t* report = json_parse_file(report_file);
+    if (!report || report->type != JSON_OBJECT) {
+        // Create new report if it doesn't exist
+        report = json_create_object();
+        if (!report) return;
+        json_object_set(report, "report_type", json_create_string("file_changes_tracking"));
+        json_object_set(report, "generated_by", json_create_string("file-changes-watcher"));
+        json_object_set(report, "timestamp", json_create_number((double)timestamp));
+        json_object_set(report, "files", json_create_array());
+    }
+
+    // Update timestamp
+    json_object_set(report, "timestamp", json_create_number((double)timestamp));
+
+    // Get files array
+    json_value_t* files_array = get_nested_value(report, "files");
+    if (!files_array || files_array->type != JSON_ARRAY) {
+        files_array = json_create_array();
+        json_object_set(report, "files", files_array);
+    }
+
+    // Check if file already exists in report
+    int found = 0;
+    for (size_t i = 0; i < files_array->value.arr_val->count; i++) {
+        json_value_t* file_obj = files_array->value.arr_val->items[i];
+        if (file_obj->type == JSON_OBJECT) {
+            json_value_t* path_val = get_nested_value(file_obj, "path");
+            json_value_t* repo_val = get_nested_value(file_obj, "repository");
+            if (path_val && path_val->type == JSON_STRING &&
+                repo_val && repo_val->type == JSON_STRING &&
+                strcmp(path_val->value.str_val, report_path) == 0 &&
+                strcmp(repo_val->value.str_val, repository) == 0) {
+                // Update existing entry
+                json_object_set(file_obj, "last_updated", json_create_number((double)timestamp));
+                found = 1;
                 break;
             }
         }
+    }
 
-        if (still_exists) {
-            // Keep this change
-            if (write_idx != i) {
-                changes->files[write_idx] = changes->files[i];
+    // Add new entry if not found
+    if (!found) {
+        json_value_t* file_obj = json_create_object();
+        json_object_set(file_obj, "path", json_create_string(report_path));
+        json_object_set(file_obj, "repository", json_create_string(repository));
+        json_object_set(file_obj, "first_detected", json_create_number((double)timestamp));
+        json_object_set(file_obj, "last_updated", json_create_number((double)timestamp));
+        json_array_add(files_array, file_obj);
+    }
+
+    // Clean up expired entries (older than 30 seconds) by rebuilding array with new objects
+    time_t now = timestamp;
+    json_value_t* filtered_array = json_create_array();
+    if (filtered_array) {
+        for (size_t i = 0; i < files_array->value.arr_val->count; i++) {
+            json_value_t* file_obj = files_array->value.arr_val->items[i];
+            if (file_obj->type == JSON_OBJECT) {
+                json_value_t* path_val = get_nested_value(file_obj, "path");
+                json_value_t* repo_val = get_nested_value(file_obj, "repository");
+                json_value_t* first_detected_val = get_nested_value(file_obj, "first_detected");
+                json_value_t* last_updated_val = get_nested_value(file_obj, "last_updated");
+                
+                if (last_updated_val && last_updated_val->type == JSON_NUMBER) {
+                    time_t last_updated = (time_t)last_updated_val->value.num_val;
+                    // Keep entries updated within the last 30 seconds
+                    if (now - last_updated < 30) {
+                        // Create new object (don't reuse to avoid double-free)
+                        json_value_t* new_file_obj = json_create_object();
+                        if (path_val && path_val->type == JSON_STRING) {
+                            json_object_set(new_file_obj, "path", json_create_string(path_val->value.str_val));
+                        }
+                        if (repo_val && repo_val->type == JSON_STRING) {
+                            json_object_set(new_file_obj, "repository", json_create_string(repo_val->value.str_val));
+                        }
+                        if (first_detected_val && first_detected_val->type == JSON_NUMBER) {
+                            json_object_set(new_file_obj, "first_detected", json_create_number(first_detected_val->value.num_val));
+                        }
+                        json_object_set(new_file_obj, "last_updated", json_create_number((double)last_updated));
+                        json_array_add(filtered_array, new_file_obj);
+                    }
+                }
             }
-            write_idx++;
-        } else {
-            // Remove this change
-            free(change->path);
-            free(change->repository);
         }
+        // Only write if the filtered array is different (has different count)
+        size_t old_count = files_array->value.arr_val->count;
+        size_t new_count = filtered_array->value.arr_val->count;
+        
+        if (old_count != new_count) {
+            // Count changed, need to update
+            json_object_set(report, "files", filtered_array);
+            json_object_set(report, "timestamp", json_create_number((double)now));
+            json_write_file(report_file, report);
+        } else {
+            // No change, don't write (avoid unnecessary file updates)
+            json_free(filtered_array);
+        }
+    } else {
+        // No filtered array created, just write as-is
+        json_write_file(report_file, report);
     }
-    changes->count = write_idx;
 
-    // Cleanup current paths
-    for (size_t i = 0; i < current_count; i++) {
-        free(current_paths[i]);
-    }
-    free(current_paths);
+    json_free(report);
 }
 
-// Get tracked files from a repository using git ls-files
+// Process inotify events and write notifications for directory changes
+void process_inotify_events(watch_collection_t* watches, const char* stream_file, const char* report_file) {
+    if (!watches || watches->inotify_fd < 0) return;
+
+    char buffer[4096];
+    ssize_t len;
+
+    // Extract filenames from paths for exclusion
+    const char* report_filename = strrchr(report_file, '/');
+    if (!report_filename) report_filename = report_file;
+    else report_filename++; // Skip the '/'
+    
+    const char* stream_filename = strrchr(stream_file, '/');
+    if (!stream_filename) stream_filename = stream_file;
+    else stream_filename++; // Skip the '/'
+
+    // Read all available events
+    while ((len = read(watches->inotify_fd, buffer, sizeof(buffer))) > 0) {
+        const struct inotify_event* event;
+        time_t now = time(NULL);
+
+        for (char* ptr = buffer; ptr < buffer + len; ptr += sizeof(struct inotify_event) + event->len) {
+            event = (const struct inotify_event*)ptr;
+
+            // Find the watch entry for this event
+            for (size_t i = 0; i < watches->count; i++) {
+                watch_entry_t* entry = &watches->entries[i];
+                if (entry->wd == event->wd && event->name) {
+                    // Skip ALL report files and stream file to avoid infinite update loops
+                    const char* name = event->name;
+                    if (strcmp(name, stream_filename) == 0 ||
+                        strstr(name, "-report.json") != NULL ||
+                        strstr(name, ".report") != NULL ||
+                        (strstr(name, "report.json") != NULL) ||
+                        (strstr(name, "report") != NULL && strstr(name, ".json") != NULL)) {
+                        break;
+                    }
+
+                    // Only process events that have filenames (not just directory events)
+                    // Check if this is a file modification event
+                    if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO)) {
+                        // Skip directories
+                        if (event->mask & IN_ISDIR) {
+                            break;
+                        }
+
+                        // Check if this is a new change (avoid duplicate notifications)
+                        char event_key[1024];
+                        snprintf(event_key, sizeof(event_key), "%s/%s", entry->repository, event->name);
+
+                        static char last_event_key[1024] = "";
+                        static time_t last_event_time = 0;
+
+                        if (strcmp(event_key, last_event_key) != 0 || now - last_event_time >= 1) {
+                            write_change_notification(stream_file, event->name, entry->repository, now);
+                            update_file_changes_report(report_file, event->name, entry->repository, now);
+                            strncpy(last_event_key, event_key, sizeof(last_event_key) - 1);
+                            last_event_time = now;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Handle read errors (EAGAIN is expected for non-blocking)
+    if (len < 0 && errno != EAGAIN) {
+        fprintf(stderr, "Error reading inotify events: %s\n", strerror(errno));
+    }
+}
+
+// Clean up expired entries from the stream file (older than 30 seconds)
+void cleanup_expired_entries(const char* stream_file) {
+    // Read all entries
+    FILE* fp = fopen(stream_file, "r");
+    if (!fp) {
+        // File doesn't exist yet, nothing to clean up
+        return;
+    }
+
+    // Structure to hold active entries
+    typedef struct {
+        char* line;
+        time_t timestamp;
+    } entry_t;
+
+    entry_t* entries = NULL;
+    size_t entry_count = 0;
+    char line[4096];
+    time_t now = time(NULL);
+
+    // Read all lines and filter active ones
+    while (fgets(line, sizeof(line), fp)) {
+        // Parse JSON to extract timestamp
+        json_value_t* json = json_parse_string(line);
+        if (json && json->type == JSON_OBJECT) {
+            json_value_t* timestamp_val = get_nested_value(json, "timestamp");
+            if (timestamp_val && timestamp_val->type == JSON_NUMBER) {
+                time_t timestamp = (time_t)timestamp_val->value.num_val;
+                if (now - timestamp < 30) { // Keep entries less than 30 seconds old
+                    entries = realloc(entries, (entry_count + 1) * sizeof(entry_t));
+                    entries[entry_count].line = strdup(line);
+                    entries[entry_count].timestamp = timestamp;
+                    entry_count++;
+                }
+            }
+        }
+        if (json) json_free(json);
+    }
+
+    fclose(fp);
+
+    // Write back active entries
+    fp = fopen(stream_file, "w");
+    if (!fp) {
+        fprintf(stderr, "Failed to write cleaned stream file: %s\n", stream_file);
+        // Cleanup
+        for (size_t i = 0; i < entry_count; i++) {
+            free(entries[i].line);
+        }
+        free(entries);
+        return;
+    }
+
+    // Sort by timestamp (newest first) and write
+    for (size_t i = 0; i < entry_count; i++) {
+        fprintf(fp, "%s", entries[i].line);
+        free(entries[i].line);
+    }
+
+    free(entries);
+    fclose(fp);
+}
+
+// Get tracked files from a repository using git ls-files (excluding directories)
 char** get_tracked_files_from_repo(const char* repo_path, size_t* file_count) {
     *file_count = 0;
 
@@ -196,6 +499,12 @@ char** get_tracked_files_from_repo(const char* repo_path, size_t* file_count) {
         // Skip empty lines
         if (strlen(line) == 0) continue;
 
+        // Skip directories (git ls-files can return directories)
+        struct stat st;
+        if (stat(line, &st) == 0 && S_ISDIR(st.st_mode)) {
+            continue;
+        }
+
         // Resize array if needed
         if (*file_count >= capacity) {
             capacity *= 2;
@@ -225,127 +534,27 @@ char** get_tracked_files_from_repo(const char* repo_path, size_t* file_count) {
     return files;
 }
 
-// Get file modification time using stat()
-time_t get_file_mtime(const char* filepath) {
-    struct stat file_stat;
-
-    if (stat(filepath, &file_stat) != 0) {
-        // File doesn't exist or can't be accessed
-        return 0;
-    }
-
-    return file_stat.st_mtime;
-}
-
-// Load existing file changes from file-changes-report.json
-int load_existing_changes(file_changes_t* changes) {
-    json_value_t* report = json_parse_file("file-changes-report.json");
-    if (!report || report->type != JSON_OBJECT) {
-        return -1; // No existing report or invalid format
-    }
-
-    json_value_t* files = get_nested_value(report, "files");
-    if (!files || files->type != JSON_ARRAY) {
-        json_free(report);
-        return -1;
-    }
-
-    for (size_t i = 0; i < files->value.arr_val->count; i++) {
-        json_value_t* file_obj = files->value.arr_val->items[i];
-        if (file_obj->type != JSON_OBJECT) continue;
-
-        json_value_t* path = get_nested_value(file_obj, "path");
-        json_value_t* repository = get_nested_value(file_obj, "repository");
-        json_value_t* first_detected = get_nested_value(file_obj, "first_detected");
-        json_value_t* last_updated = get_nested_value(file_obj, "last_updated");
-        json_value_t* mtime = get_nested_value(file_obj, "mtime");
-
-        if (path && path->type == JSON_STRING &&
-            repository && repository->type == JSON_STRING &&
-            first_detected && first_detected->type == JSON_NUMBER &&
-            last_updated && last_updated->type == JSON_NUMBER) {
-
-            if (changes->count >= changes->capacity) {
-                changes->capacity *= 2;
-                file_change_t* new_files = realloc(changes->files, changes->capacity * sizeof(file_change_t));
-                if (!new_files) continue;
-                changes->files = new_files;
-            }
-
-            file_change_t* change = &changes->files[changes->count];
-            change->path = strdup(path->value.str_val);
-            change->repository = strdup(repository->value.str_val);
-            change->first_detected = (time_t)first_detected->value.num_val;
-            change->last_updated = (time_t)last_updated->value.num_val;
-            // Handle mtime field (may not exist in old reports)
-            change->mtime = mtime && mtime->type == JSON_NUMBER ? (time_t)mtime->value.num_val : 0;
-            changes->count++;
-        }
-    }
-
-    json_free(report);
-    return 0;
-}
-
-// Save file changes to file-changes-report.json
-void save_file_changes(file_changes_t* changes) {
-    json_value_t* root = json_create_object();
-    if (!root) return;
-
-    json_object_set(root, "report_type", json_create_string("file_changes_tracking"));
-    json_object_set(root, "generated_by", json_create_string("file-changes-watcher"));
-    json_object_set(root, "timestamp", json_create_number((double)time(NULL)));
-
-    json_value_t* files_array = json_create_array();
-    if (files_array) {
-        for (size_t i = 0; i < changes->count; i++) {
-            file_change_t* change = &changes->files[i];
-
-            json_value_t* file_obj = json_create_object();
-            if (file_obj) {
-                json_object_set(file_obj, "path", json_create_string(change->path));
-                json_object_set(file_obj, "repository", json_create_string(change->repository));
-                json_object_set(file_obj, "first_detected", json_create_number((double)change->first_detected));
-                json_object_set(file_obj, "last_updated", json_create_number((double)change->last_updated));
-                json_object_set(file_obj, "mtime", json_create_number((double)change->mtime));
-                json_array_add(files_array, file_obj);
-            }
-        }
-        json_object_set(root, "files", files_array);
-    }
-
-    json_write_file("file-changes-report.json", root);
-    json_free(root);
-}
-
-// Poll all tracked files for mtime changes
-void poll_tracked_files_mtime(file_changes_t* changes) {
-    // Load existing changes if this is the first run
-    static int first_run = 1;
-    if (first_run) {
-        load_existing_changes(changes);
-        first_run = 0;
-    }
+// Setup inotify watches for all tracked files across all repositories
+int setup_inotify_watches(watch_collection_t* watches) {
+    if (!watches) return -1;
 
     // Read git-submodules.report to get all repositories
+    fprintf(stderr, "Reading git-submodules.report...\n");
     json_value_t* submodules_report = json_parse_file("git-submodules.report");
     if (!submodules_report || submodules_report->type != JSON_OBJECT) {
         fprintf(stderr, "Failed to load git-submodules.report\n");
-        return;
+        return -1;
     }
+    fprintf(stderr, "Successfully loaded git-submodules.report\n");
 
     json_value_t* repos = get_nested_value(submodules_report, "repositories");
     if (!repos || repos->type != JSON_ARRAY) {
         fprintf(stderr, "No repositories found in git-submodules.report\n");
         json_free(submodules_report);
-        return;
+        return -1;
     }
 
-    time_t now = time(NULL);
-
-    // Create a set of all currently tracked files to detect removed files
-    char** current_tracked_files = NULL;
-    size_t current_tracked_count = 0;
+    int watch_count = 0;
 
     // Process each repository
     for (size_t i = 0; i < repos->value.arr_val->count; i++) {
@@ -361,142 +570,106 @@ void poll_tracked_files_mtime(file_changes_t* changes) {
         const char* repo_name_str = repo_name->value.str_val;
         const char* repo_path_str = repo_path->value.str_val;
 
-        // Get all tracked files from this repository
-        size_t file_count = 0;
-        char** tracked_files = get_tracked_files_from_repo(repo_path_str, &file_count);
-
-        if (!tracked_files) {
-            fprintf(stderr, "Failed to get tracked files from repository: %s\n", repo_name_str);
-            continue;
-        }
-
-        // Process each tracked file
-        for (size_t j = 0; j < file_count; j++) {
-            const char* file_path = tracked_files[j];
-
-            // Build full path for mtime checking (relative to repoWatch root)
-            char full_path[4096];
-            if (strcmp(repo_name_str, "root") == 0) {
-                // Root repo: file path is relative to repoWatch directory
-                snprintf(full_path, sizeof(full_path), "../%s", file_path);
-            } else {
-                // Submodule: file path is relative to submodule directory
-                snprintf(full_path, sizeof(full_path), "../%s/%s", repo_name_str, file_path);
-            }
-
-            // Get current mtime
-            time_t current_mtime = get_file_mtime(full_path);
-
-            // Build path key for tracking (repo/file format)
-            char path_key[4096];
-            if (strcmp(repo_name_str, "root") == 0) {
-                // For root repo, use just the filename (to match existing format)
-                snprintf(path_key, sizeof(path_key), "%s", file_path);
-            } else {
-                // For submodules, use repo/filename format
-                snprintf(path_key, sizeof(path_key), "%s/%s", repo_name_str, file_path);
-            }
-
-            // Check if we already track this file
-            int found = 0;
-            for (size_t k = 0; k < changes->count; k++) {
-                file_change_t* change = &changes->files[k];
-                if (strcmp(change->path, path_key) == 0) {
-                    found = 1;
-                    // File exists - check if mtime changed
-                    if (change->mtime != current_mtime && current_mtime != 0) {
-                        // File was modified - update timestamp and mtime
-                        change->last_updated = now;
-                        change->mtime = current_mtime;
-                    }
-                    break;
-                }
-            }
-
-            // If not found, add new file
-            if (!found && current_mtime != 0) {
-                if (changes->count >= changes->capacity) {
-                    changes->capacity *= 2;
-                    file_change_t* new_files = realloc(changes->files, changes->capacity * sizeof(file_change_t));
-                    if (!new_files) {
-                        fprintf(stderr, "Failed to allocate memory for new file changes\n");
-                        break;
-                    }
-                    changes->files = new_files;
-                }
-
-                file_change_t* change = &changes->files[changes->count];
-                change->path = strdup(path_key);
-                change->repository = strcmp(repo_name_str, "root") == 0 ? strdup("root") : strdup(repo_name_str);
-                change->first_detected = now;
-                change->last_updated = now;
-                change->mtime = current_mtime;
-                changes->count++;
-            }
-
-            // Add to current tracked files list for cleanup
-            current_tracked_files = realloc(current_tracked_files, (current_tracked_count + 1) * sizeof(char*));
-            current_tracked_files[current_tracked_count] = strdup(path_key);
-            current_tracked_count++;
-        }
-
-        // Cleanup tracked files array
-        for (size_t j = 0; j < file_count; j++) {
-            free(tracked_files[j]);
-        }
-        free(tracked_files);
-    }
-
-    // Remove files that are no longer tracked by git
-    size_t write_idx = 0;
-    for (size_t i = 0; i < changes->count; i++) {
-        file_change_t* change = &changes->files[i];
-        int still_tracked = 0;
-
-        for (size_t j = 0; j < current_tracked_count; j++) {
-            if (strcmp(change->path, current_tracked_files[j]) == 0) {
-                still_tracked = 1;
-                break;
-            }
-        }
-
-        if (still_tracked) {
-            // Keep this change
-            if (write_idx != i) {
-                changes->files[write_idx] = changes->files[i];
-            }
-            write_idx++;
-        } else {
-            // Remove this change (file no longer tracked)
-            free(change->path);
-            free(change->repository);
+        // Use absolute path from git-submodules.report
+        // Add watch for this repository directory (watch recursively by watching the repo root)
+        if (add_directory_watch(watches, repo_path_str, repo_name_str) == 0) {
+            watch_count++;
+            fprintf(stderr, "Watching directory: %s (%s)\n", repo_path_str, repo_name_str);
         }
     }
-    changes->count = write_idx;
-
-    // Cleanup current tracked files
-    for (size_t i = 0; i < current_tracked_count; i++) {
-        free(current_tracked_files[i]);
-    }
-    free(current_tracked_files);
 
     json_free(submodules_report);
+    fprintf(stderr, "Set up %d inotify watches\n", watch_count);
+    return watch_count;
 }
 
 int main(int argc, char* argv[]) {
-    file_changes_t* changes = file_changes_init();
-    if (!changes) {
-        fprintf(stderr, "Failed to initialize file changes collection\n");
+    fprintf(stderr, "Starting file-changes-watcher daemon...\n");
+
+    // Fork into background to run as daemon
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "Failed to fork daemon process\n");
         return 1;
     }
 
-    // Poll all tracked files for mtime changes
-    poll_tracked_files_mtime(changes);
+    if (pid > 0) {
+        // Parent process exits
+        fprintf(stderr, "File-changes-watcher daemon started with PID %d\n", pid);
+        return 0;
+    }
 
-    // Save the updated file changes report
-    save_file_changes(changes);
+    // Child process becomes daemon
+    if (setsid() < 0) {
+        fprintf(stderr, "Failed to create new session\n");
+        return 1;
+    }
 
-    file_changes_cleanup(changes);
+    // Change to repoWatch directory
+    if (chdir("..") < 0) {
+        fprintf(stderr, "Failed to change to repoWatch directory\n");
+        return 1;
+    }
+
+    // Set up signal handlers for clean shutdown
+    struct sigaction sa;
+    sa.sa_handler = daemon_signal_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
+
+    // Initialize watches
+    g_watches = watch_collection_init();
+    if (!g_watches) {
+        fprintf(stderr, "Failed to initialize watch collection\n");
+        return 1;
+    }
+
+    const char* stream_file = "three-pane-tui/file-changes-stream.json";
+    const char* report_file = "file-changes-report.json";
+
+    // Setup inotify watches for all tracked files
+    int watch_count = setup_inotify_watches(g_watches);
+    if (watch_count < 0) {
+        fprintf(stderr, "Failed to setup inotify watches\n");
+        watch_collection_cleanup(g_watches);
+        return 1;
+    }
+
+    fprintf(stderr, "Set up %d inotify watches, daemon running...\n", watch_count);
+
+    // Test inotify events immediately
+    fprintf(stderr, "Testing inotify events...\n");
+    process_inotify_events(g_watches, stream_file, report_file);
+
+    // Main daemon loop
+    int loop_count = 0;
+    while (g_running) {
+        loop_count++;
+        if (loop_count % 100 == 0) { // Log every 10 seconds (100 * 100ms)
+            fprintf(stderr, "Daemon loop running (iteration %d)...\n", loop_count);
+        }
+
+        // Process any pending inotify events
+        process_inotify_events(g_watches, stream_file, report_file);
+
+        // Clean up expired entries from stream file and report every 30 seconds
+        static time_t last_cleanup = 0;
+        time_t now = time(NULL);
+        if (now - last_cleanup >= 30) {
+            cleanup_expired_entries(stream_file);
+            cleanup_expired_report_entries(report_file);
+            last_cleanup = now;
+        }
+
+        // Sleep briefly to avoid busy waiting
+        usleep(100000); // 100ms
+    }
+
+    fprintf(stderr, "File-changes-watcher daemon shutting down...\n");
+
+    // Clean shutdown
+    watch_collection_cleanup(g_watches);
     return 0;
 }
-

@@ -26,3 +26,6 @@ committed-not-pushed-report.json
 dirty-files-report.json
 file-changes-report.json
 benchmark-report.json
+**/committed-not-pushed-report.json
+**/dirty-files-report.json
+**/file-changes-report.json

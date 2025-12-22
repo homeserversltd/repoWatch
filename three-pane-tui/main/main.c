@@ -116,6 +116,9 @@ three_pane_tui_orchestrator_t* three_pane_tui_init(const char* module_path) {
 
 // Cleanup orchestrator
 void three_pane_tui_cleanup(three_pane_tui_orchestrator_t* orch) {
+    // Kill any file-changes-watcher daemon processes
+    system("pkill -f file-changes-watcher > /dev/null 2>&1");
+
     if (orch) {
         // Cleanup config
         free(orch->config.title);
@@ -495,7 +498,16 @@ int three_pane_tui_execute(three_pane_tui_orchestrator_t* orch) {
             // Refresh git data by re-running all components
             int dirty_files_result = system("./dirty-files/dirty-files > /dev/null 2>&1");
             int committed_not_pushed_result = system("./committed-not-pushed/committed-not-pushed > /dev/null 2>&1");
-            system("./file-changes-watcher/file-changes-watcher > /dev/null 2>&1"); // Always run, no result check needed
+
+            // Only launch file-changes-watcher daemon if not already running
+            static int daemon_launched = 0;
+            if (!daemon_launched) {
+                int daemon_result = system("./file-changes-watcher/file-changes-watcher > /dev/null 2>&1");
+                if (daemon_result == 0) {
+                    daemon_launched = 1;
+                    fprintf(stderr, "File-changes-watcher daemon launched\n");
+                }
+            }
 
             // Reload data for each pane that succeeded (always attempt all)
             int data_changed = 0;

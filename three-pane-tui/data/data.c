@@ -675,45 +675,43 @@ int load_dirty_files_data(three_pane_tui_orchestrator_t* orch, view_mode_t view_
 
 // active_file_info_t is defined in three-pane-tui.h
 
-// Load file changes data from file-changes-report.json and return active files info
+// Load file changes data from file-changes-stream.json and return active files info
 active_file_info_t* load_file_changes_data(size_t* active_count) {
-    json_value_t* report = json_parse_file("file-changes-report.json");
-    if (!report || report->type != JSON_OBJECT) {
-        fprintf(stderr, "Failed to load file-changes-report.json\n");
-        *active_count = 0;
-        return NULL;
-    }
-
-    json_value_t* files = get_nested_value(report, "files");
-    if (!files || files->type != JSON_ARRAY) {
-        fprintf(stderr, "No files found in file-changes-report.json\n");
-        json_free(report);
+    FILE* fp = fopen("file-changes-stream.json", "r");
+    if (!fp) {
+        // File doesn't exist yet, no active files
         *active_count = 0;
         return NULL;
     }
 
     time_t now = time(NULL);
     size_t count = 0;
+    char line[4096];
 
-    // Count active files (within last 30 seconds)
-    for (size_t i = 0; i < files->value.arr_val->count; i++) {
-        json_value_t* file_obj = files->value.arr_val->items[i];
-        if (file_obj->type != JSON_OBJECT) continue;
-
-        json_value_t* last_updated = get_nested_value(file_obj, "last_updated");
-        if (last_updated && last_updated->type == JSON_NUMBER) {
-            time_t updated_time = (time_t)last_updated->value.num_val;
-            if (now - updated_time < 30) {  // Active within 30 seconds
-                count++;
+    // First pass: count active files (within last 30 seconds)
+    while (fgets(line, sizeof(line), fp)) {
+        // Parse JSON line
+        json_value_t* json = json_parse_string(line);
+        if (json && json->type == JSON_OBJECT) {
+            json_value_t* timestamp_val = get_nested_value(json, "timestamp");
+            if (timestamp_val && timestamp_val->type == JSON_NUMBER) {
+                time_t timestamp = (time_t)timestamp_val->value.num_val;
+                if (now - timestamp < 30) {  // Active within 30 seconds
+                    count++;
+                }
             }
         }
+        if (json) json_free(json);
     }
+
+    // Reset file pointer to beginning
+    fseek(fp, 0, SEEK_SET);
 
     active_file_info_t* active_files = NULL;
     if (count > 0) {
         active_files = calloc(count, sizeof(active_file_info_t));
         if (!active_files) {
-            json_free(report);
+            fclose(fp);
             *active_count = 0;
             return NULL;
         }
@@ -721,28 +719,29 @@ active_file_info_t* load_file_changes_data(size_t* active_count) {
 
     *active_count = 0;
 
-    // Collect active file information
-    for (size_t i = 0; i < files->value.arr_val->count; i++) {
-        json_value_t* file_obj = files->value.arr_val->items[i];
-        if (file_obj->type != JSON_OBJECT) continue;
+    // Second pass: collect active file information
+    while (fgets(line, sizeof(line), fp)) {
+        // Parse JSON line
+        json_value_t* json = json_parse_string(line);
+        if (json && json->type == JSON_OBJECT) {
+            json_value_t* path_val = get_nested_value(json, "path");
+            json_value_t* timestamp_val = get_nested_value(json, "timestamp");
 
-        json_value_t* path = get_nested_value(file_obj, "path");
-        json_value_t* last_updated = get_nested_value(file_obj, "last_updated");
+            if (path_val && path_val->type == JSON_STRING &&
+                timestamp_val && timestamp_val->type == JSON_NUMBER) {
 
-        if (path && path->type == JSON_STRING &&
-            last_updated && last_updated->type == JSON_NUMBER) {
-
-            time_t updated_time = (time_t)last_updated->value.num_val;
-            if (now - updated_time < 30) {  // Active within 30 seconds
-                active_file_info_t* info = &active_files[*active_count];
-                info->path = strdup(path->value.str_val);
-                info->last_updated = updated_time;
-                (*active_count)++;
+                time_t timestamp = (time_t)timestamp_val->value.num_val;
+                if (now - timestamp < 30) {  // Active within 30 seconds
+                    active_file_info_t* info = &active_files[*active_count];
+                    info->path = strdup(path_val->value.str_val);
+                    info->last_updated = timestamp;
+                    (*active_count)++;
+                }
             }
         }
+        if (json) json_free(json);
     }
 
-    json_free(report);
+    fclose(fp);
     return active_files;
 }
-
