@@ -116,4 +116,12 @@ void file_tree_node_free(file_tree_node_t* node);
 void json_array_free(json_array_t* arr);
 void json_object_free(json_object_t* obj);
 
+// Centralized state management functions
+// State file location: state.json in repoWatch root directory
+json_value_t* state_load(const char* state_file_path);
+int state_save(const char* state_file_path, json_value_t* state);
+json_value_t* state_get_section(json_value_t* state, const char* section_name);
+int state_update_section(const char* state_file_path, const char* section_name, json_value_t* section_data);
+const char* state_get_default_path(void);
+
 #endif // JSON_UTILS_H

@@ -1014,3 +1014,84 @@ void file_tree_free(file_tree_report_t* report) {
     free(report->repos);
     free(report);
 }
+
+// Centralized state management functions
+// Default state file path: state.json in repoWatch root
+const char* state_get_default_path(void) {
+    return "state.json";
+}
+
+// Load state.json file (creates empty state if file doesn't exist)
+json_value_t* state_load(const char* state_file_path) {
+    if (!state_file_path) {
+        state_file_path = state_get_default_path();
+    }
+
+    json_value_t* state = json_parse_file(state_file_path);
+    if (!state) {
+        // File doesn't exist, create empty state object
+        state = json_create_object();
+    } else if (state->type != JSON_OBJECT) {
+        // Invalid format, create empty state
+        json_free(state);
+        state = json_create_object();
+    }
+
+    return state;
+}
+
+// Save state.json file
+int state_save(const char* state_file_path, json_value_t* state) {
+    if (!state || state->type != JSON_OBJECT) {
+        return -1;
+    }
+
+    if (!state_file_path) {
+        state_file_path = state_get_default_path();
+    }
+
+    return json_write_file(state_file_path, state);
+}
+
+// Get a specific section from state object
+json_value_t* state_get_section(json_value_t* state, const char* section_name) {
+    if (!state || !section_name || state->type != JSON_OBJECT) {
+        return NULL;
+    }
+
+    return get_nested_value(state, section_name);
+}
+
+// Update a specific section in state.json (atomic: load, update, save)
+// Takes ownership of section_data - caller should NOT free it after calling this function
+int state_update_section(const char* state_file_path, const char* section_name, json_value_t* section_data) {
+    if (!section_name || !section_data) {
+        return -1;
+    }
+
+    if (!state_file_path) {
+        state_file_path = state_get_default_path();
+    }
+
+    // Load current state
+    json_value_t* state = state_load(state_file_path);
+    if (!state) {
+        json_free(section_data); // Free section_data on error since we take ownership
+        return -1;
+    }
+
+    // Update the section (state now owns section_data)
+    if (json_object_set(state, section_name, section_data) != 0) {
+        json_free(section_data); // Free section_data on error
+        json_free(state);
+        return -1;
+    }
+
+    // Save updated state
+    int result = state_save(state_file_path, state);
+
+    // Free state (this will also free section_data since it's now part of state)
+    json_free(state);
+
+    return result;
+}

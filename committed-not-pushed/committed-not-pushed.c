@@ -493,24 +493,35 @@ void get_unpushed_commits(unpushed_collection_t* collection, unpushed_repo_t* re
 }
 
 // Parse git-submodules report to find repositories to check
+// Now reads from centralized state.json
 void parse_git_submodules_report(unpushed_collection_t* collection, const char* report_path) {
-    printf("Reading git-submodules JSON report from: %s\n", report_path);
+    (void)report_path; // Unused parameter, kept for compatibility
+    
+    printf("Reading git-submodules data from state.json\n");
 
-    json_value_t* report = json_parse_file(report_path);
+    // Load state.json and get git_submodules section
+    json_value_t* state = state_load(NULL);
+    if (!state) {
+        fprintf(stderr, "Could not load state.json\n");
+        return;
+    }
+
+    json_value_t* report = state_get_section(state, "git_submodules");
     if (!report || report->type != JSON_OBJECT) {
-        fprintf(stderr, "Failed to parse git-submodules report\n");
+        fprintf(stderr, "Could not find git_submodules section in state.json or invalid format\n");
+        json_free(state);
         return;
     }
 
     // Get repositories array
     json_value_t* repos = get_nested_value(report, "repositories");
     if (!repos || repos->type != JSON_ARRAY) {
-        fprintf(stderr, "No repositories found in report\n");
-        json_free(report);
+        fprintf(stderr, "No repositories found in git_submodules section\n");
+        json_free(state);
         return;
     }
 
-    printf("Found %zu repositories in git-submodules report\n", repos->value.arr_val->count);
+    printf("Found %zu repositories in git-submodules section\n", repos->value.arr_val->count);
 
     // Process each repository
     for (size_t i = 0; i < repos->value.arr_val->count; i++) {
@@ -548,7 +559,7 @@ void parse_git_submodules_report(unpushed_collection_t* collection, const char* 
         }
     }
 
-    json_free(report);
+    json_free(state); // Free state, report is part of it
     printf("Collected %zu submodule paths for filtering\n", collection->submodule_count);
 }
 
@@ -613,11 +624,12 @@ void generate_report(unpushed_collection_t* collection) {
     json_object_set(summary, "total_unpushed_commits", json_create_number((double)total_unpushed_commits));
     json_object_set(report, "summary", summary);
 
-    // Write report to file
-    json_write_file("committed-not-pushed-report.json", report);
+    // Write to centralized state.json
+    if (state_update_section(NULL, "committed_not_pushed", report) != 0) {
+        fprintf(stderr, "Failed to update state.json committed_not_pushed section\n");
+    }
+    // Note: state_update_section takes ownership of report, don't free it here
     printf("Committed-not-pushed analysis report generated\n");
-
-    json_free(report);
 }
 
 // Cleanup collection
@@ -702,8 +714,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Parse git-submodules report
-    parse_git_submodules_report(collection, "../git-submodules.report");
+    // Parse git-submodules data from centralized state.json
+    parse_git_submodules_report(collection, NULL);
 
     // Analyze each repository for unpushed commits
     for (size_t i = 0; i < collection->count; i++) {

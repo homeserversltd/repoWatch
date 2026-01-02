@@ -18,7 +18,7 @@ CFLAGS = -Wall -Wextra -g
 LDFLAGS = -lm
 
 # Define all components and their source files
-COMPONENTS = main git-submodules committed-not-pushed dirty-files file-tree dirty-files-tui hello hello-tui terminal git-status git-tui test interactive-dirty-files-tui
+COMPONENTS = main git-submodules committed-not-pushed dirty-files file-tree dirty-files-tui hello hello-tui terminal git-status git-tui test interactive-dirty-files-tui inotify-watcher
 
 # JSON utils library components (core library only, no main functions)
 JSON_UTILS_LIB = json-utils/json-utils.o json-utils/get-value.o
@@ -94,6 +94,14 @@ interactive-dirty-files-tui: interactive-dirty-files-tui/interactive-dirty-files
 	$(CC) $(CFLAGS) -o $@/interactive-dirty-files-tui $^ $(LDFLAGS)
 	@echo "✓ interactive-dirty-files-tui built"
 
+inotify-watcher: inotify-watcher/inotify-watcher.o $(JSON_UTILS_LIB)
+	$(CC) $(CFLAGS) -o $@/inotify-watcher $^ $(LDFLAGS)
+	@echo "✓ inotify-watcher built"
+
+inotify-daemon: inotify-watcher/inotify-daemon.o $(JSON_UTILS_LIB)
+	$(CC) $(CFLAGS) -o inotify-watcher/inotify-daemon $^ $(LDFLAGS)
+	@echo "✓ inotify-daemon built"
+
 # Build three-pane-tui using its own Makefile (depends on JSON utils)
 three-pane-tui: $(JSON_UTILS_LIB)
 	make -C three-pane-tui
@@ -139,6 +147,12 @@ test/test.o: test/test.c json-utils/json-utils.h
 interactive-dirty-files-tui/interactive-dirty-files-tui.o: interactive-dirty-files-tui/interactive-dirty-files-tui.c json-utils/json-utils.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+inotify-watcher/inotify-watcher.o: inotify-watcher/inotify-watcher.c json-utils/json-utils.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+inotify-watcher/inotify-daemon.o: inotify-watcher/inotify-daemon.c inotify-watcher/inotify-daemon.h json-utils/json-utils.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 # JSON utils library compilation (no main functions)
 json-utils/json-utils.o: json-utils/json-utils.c json-utils/json-utils.h
 	$(CC) $(CFLAGS) -DGET_VALUE_LIBRARY_ONLY -c -o $@ $<
@@ -180,6 +194,7 @@ clean:
 	rm -f hello/hello hello-tui/hello-tui terminal/terminal
 	rm -f git-status/git-status git-tui/git-tui test/test
 	rm -f interactive-dirty-files-tui/interactive-dirty-files-tui
+	rm -f inotify-watcher/inotify-watcher inotify-watcher/inotify-daemon
 	$(MAKE) -C three-pane-tui clean
 	@echo "✓ All build artifacts cleaned"
 

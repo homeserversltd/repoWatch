@@ -443,12 +443,12 @@ void generate_json_report(status_collection_t* collection, const char* repo_path
         json_object_set(root, "summary", summary);
     }
 
-    // Write JSON to file
-    if (json_write_file("../git-submodules.report", root) != 0) {
-        fprintf(stderr, "Failed to write JSON report file\n");
+    // Write to centralized state.json
+    if (state_update_section(NULL, "git_submodules", root) != 0) {
+        fprintf(stderr, "Failed to update state.json git_submodules section\n");
+        json_free(root);
     }
-
-    json_free(root);
+    // Note: root is now part of state, don't free it here
 }
 
 // Cleanup status collection

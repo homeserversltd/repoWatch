@@ -176,14 +176,23 @@ void get_dirty_files(dirty_collection_t* collection, dirty_repo_t* repo) {
 }
 
 // Parse git-submodules report to find dirty repositories
+// Now reads from centralized state.json
 void parse_git_submodules_report(dirty_collection_t* collection, const char* report_path) {
-    printf("Reading git-submodules JSON report from: %s\n", report_path);
+    (void)report_path; // Unused parameter, kept for compatibility
+    
+    printf("Reading git-submodules data from state.json\n");
 
-    // Parse JSON file
-    json_value_t* root = json_parse_file(report_path);
+    // Load state.json and get git_submodules section
+    json_value_t* state = state_load(NULL);
+    if (!state) {
+        fprintf(stderr, "Could not load state.json\n");
+        return;
+    }
+
+    json_value_t* root = state_get_section(state, "git_submodules");
     if (!root || root->type != JSON_OBJECT) {
-        fprintf(stderr, "Could not parse JSON report or invalid format\n");
-        if (root) json_free(root);
+        fprintf(stderr, "Could not find git_submodules section in state.json or invalid format\n");
+        json_free(state);
         return;
     }
 
@@ -198,8 +207,8 @@ void parse_git_submodules_report(dirty_collection_t* collection, const char* rep
     }
 
     if (!repos) {
-        fprintf(stderr, "No repositories array found in JSON report\n");
-        json_free(root);
+        fprintf(stderr, "No repositories array found in git_submodules section\n");
+        json_free(state);
         return;
     }
 
@@ -232,7 +241,7 @@ void parse_git_submodules_report(dirty_collection_t* collection, const char* rep
         }
     }
 
-    json_free(root);
+    json_free(state); // Free state, root is part of it
 }
 
 // Run git-submodules and parse its output to find dirty repositories
@@ -357,12 +366,11 @@ void generate_json_report(dirty_collection_t* collection) {
         json_object_set(root, "summary", summary);
     }
 
-    // Write JSON to file
-    if (json_write_file("dirty-files-report.json", root) != 0) {
-        fprintf(stderr, "Failed to write JSON report file\n");
+    // Write to centralized state.json
+    if (state_update_section(NULL, "dirty_files", root) != 0) {
+        fprintf(stderr, "Failed to update state.json dirty_files section\n");
     }
-
-    json_free(root);
+    // Note: state_update_section takes ownership of root, don't free it here
 }
 
 // Cleanup dirty collection
@@ -400,8 +408,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Parse git-submodules report to find dirty repositories
-    parse_git_submodules_report(collection, "./git-submodules.report");
+    // Parse git-submodules data from centralized state.json
+    parse_git_submodules_report(collection, NULL);
 
     // Collect all submodule paths for filtering
     collect_submodule_paths(collection, ".");
