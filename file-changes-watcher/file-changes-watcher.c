@@ -237,16 +237,23 @@ time_t get_file_mtime(const char* filepath) {
     return file_stat.st_mtime;
 }
 
-// Load existing file changes from file-changes-report.json
+// Load existing file changes from centralized state.json
 int load_existing_changes(file_changes_t* changes) {
-    json_value_t* report = json_parse_file("file-changes-report.json");
+    // Load state.json and get file_changes section
+    json_value_t* state = state_load(NULL);
+    if (!state) {
+        return -1; // No state.json or couldn't load
+    }
+
+    json_value_t* report = state_get_section(state, "file_changes");
     if (!report || report->type != JSON_OBJECT) {
-        return -1; // No existing report or invalid format
+        json_free(state);
+        return -1; // No file_changes section or invalid format
     }
 
     json_value_t* files = get_nested_value(report, "files");
     if (!files || files->type != JSON_ARRAY) {
-        json_free(report);
+        json_free(state);
         return -1;
     }
 
@@ -283,7 +290,7 @@ int load_existing_changes(file_changes_t* changes) {
         }
     }
 
-    json_free(report);
+    json_free(state); // Free state, report is part of it
     return 0;
 }
 
@@ -314,8 +321,11 @@ void save_file_changes(file_changes_t* changes) {
         json_object_set(root, "files", files_array);
     }
 
-    json_write_file("file-changes-report.json", root);
-    json_free(root);
+    // Write to centralized state.json
+    if (state_update_section(NULL, "file_changes", root) != 0) {
+        fprintf(stderr, "Failed to update state.json file_changes section\n");
+    }
+    // Note: state_update_section takes ownership of root, don't free it here
 }
 
 // Poll all tracked files for mtime changes
@@ -327,17 +337,24 @@ void poll_tracked_files_mtime(file_changes_t* changes) {
         first_run = 0;
     }
 
-    // Read git-submodules.report to get all repositories
-    json_value_t* submodules_report = json_parse_file("git-submodules.report");
+    // Read git-submodules data from centralized state.json
+    json_value_t* state = state_load(NULL);
+    if (!state) {
+        fprintf(stderr, "Failed to load state.json\n");
+        return;
+    }
+
+    json_value_t* submodules_report = state_get_section(state, "git_submodules");
     if (!submodules_report || submodules_report->type != JSON_OBJECT) {
-        fprintf(stderr, "Failed to load git-submodules.report\n");
+        fprintf(stderr, "Failed to load git_submodules section from state.json\n");
+        json_free(state);
         return;
     }
 
     json_value_t* repos = get_nested_value(submodules_report, "repositories");
     if (!repos || repos->type != JSON_ARRAY) {
-        fprintf(stderr, "No repositories found in git-submodules.report\n");
-        json_free(submodules_report);
+        fprintf(stderr, "No repositories found in git_submodules section\n");
+        json_free(state);
         return;
     }
 
@@ -480,7 +497,7 @@ void poll_tracked_files_mtime(file_changes_t* changes) {
     }
     free(current_tracked_files);
 
-    json_free(submodules_report);
+    json_free(state); // Free state, submodules_report is part of it
 }
 
 int main(int argc, char* argv[]) {
@@ -499,4 +516,11 @@ int main(int argc, char* argv[]) {
     file_changes_cleanup(changes);
     return 0;
 }
+
+
+
+
+
+
+
 

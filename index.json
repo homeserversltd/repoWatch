@@ -7,13 +7,14 @@
   "paths": {
     "repo_path": ".",
     "config_dir": "~/.config/repowatch",
-    "cache_dir": "~/.cache/repowatch"
+    "cache_dir": "~/.cache/repowatch",
+    "state_file": "state.json"
   },
   "children": [
     "git-submodules",
     "committed-not-pushed",
     "dirty-files",
-    "file-changes-watcher",
+    "inotify-watcher",
     "three-pane-tui"
   ],
   "execution": {

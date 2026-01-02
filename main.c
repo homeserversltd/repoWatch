@@ -574,10 +574,6 @@ int execute_children(orchestrator_t* orch, component_benchmark_t** benchmarks_ou
     for (size_t i = 0; i < num_children; i++) {
         const char* child_name = children[i];
         char child_cmd[1024];
-        char report_file[1024];
-
-        // Create path for child's report file
-        snprintf(report_file, sizeof(report_file), "%s/%s/.report", orch->module_path, child_name);
 
         // Try different executable naming patterns
         // Pattern 1: {child_name}/{child_name} (e.g., hello/hello)
@@ -624,26 +620,9 @@ int execute_children(orchestrator_t* orch, component_benchmark_t** benchmarks_ou
                 log_state(orch, "SUCCESS: Child '%s' completed successfully (took %.3f seconds)", child_name, wall_time_delta);
             }
 
-            // Read child's report if it exists
-            char* report = NULL;
-            FILE* rf = fopen(report_file, "r");
-            if (rf) {
-                fseek(rf, 0, SEEK_END);
-                long size = ftell(rf);
-                fseek(rf, 0, SEEK_SET);
-                report = malloc(size + 1);
-                if (report) {
-                    fread(report, 1, size, rf);
-                    report[size] = '\0';
-                }
-                fclose(rf);
-                // Clean up report file
-                unlink(report_file);
-            }
-
-            // Add to state
-            add_child_state(orch, child_name, result, start_time, end_time, report);
-            free(report);
+            // Note: Children now write to centralized state.json
+            // No need to read .report files anymore
+            add_child_state(orch, child_name, result, start_time, end_time, NULL);
             continue;
         }
 
@@ -691,26 +670,9 @@ int execute_children(orchestrator_t* orch, component_benchmark_t** benchmarks_ou
                 log_state(orch, "SUCCESS: Child '%s' completed successfully (took %.3f seconds)", child_name, wall_time_delta);
             }
 
-            // Read child's report if it exists
-            char* report = NULL;
-            FILE* rf = fopen(report_file, "r");
-            if (rf) {
-                fseek(rf, 0, SEEK_END);
-                long size = ftell(rf);
-                fseek(rf, 0, SEEK_SET);
-                report = malloc(size + 1);
-                if (report) {
-                    fread(report, 1, size, rf);
-                    report[size] = '\0';
-                }
-                fclose(rf);
-                // Clean up report file
-                unlink(report_file);
-            }
-
-            // Add to state
-            add_child_state(orch, child_name, result, start_time, end_time, report);
-            free(report);
+            // Note: Children now write to centralized state.json
+            // No need to read .report files anymore
+            add_child_state(orch, child_name, result, start_time, end_time, NULL);
             continue;
         }
 

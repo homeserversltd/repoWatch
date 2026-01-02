@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "name": "Inotify Watcher",
+    "description": "Event-driven file watching using inotify with daemon architecture"
+  },
+  "paths": {
+    "pid_file": "${XDG_CACHE_HOME:-~/.cache}/repowatch/inotify-daemon.pid",
+    "report_file": "inotify-changes-report.json",
+    "git_submodules_report": "git-submodules.report"
+  },
+  "children": [],
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": true,
+    "parallel": false
+  },
+  "config": {
+    "watch_recursive": true,
+    "exclude_patterns": [".git", "*.tmp", "*.swp", "*.o"],
+    "report_on_signal": true,
+    "signal_type": "SIGUSR1"
+  }
+}
